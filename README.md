@@ -8,14 +8,16 @@ kmortem is a Kubernetes operator that watches for node termination events and pr
 
 kmortem runs two controllers:
 
-**NodeReconciler** watches all Node objects. When it detects termination signals (cordoned taint, failed Ready condition, cluster-autoscaler annotation, or deletion timestamp), it creates a `NodeReport` and immediately dispatches a background goroutine to collect evidence. The reconciler itself returns instantly — it never blocks on collection.
+**NodeReconciler** watches all Node objects. When it detects termination signals (cordoned taint, failed Ready condition, cluster-autoscaler annotation, Karpenter disruption taint, or deletion timestamp), it creates a `NodeReport` and immediately dispatches a background goroutine to collect evidence. The reconciler itself returns instantly — it never blocks on collection.
 
 **NodeReportReconciler** manages the lifecycle of `NodeReport` objects: checking collection progress, enforcing TTL expiry, optionally archiving to S3, and finally deleting the object.
 
-Evidence is gathered by five collectors split into two parallel groups:
+Evidence is gathered by four collectors split into two parallel groups:
 
-- **Hot** (time-critical, while the node is still reachable): AWS instance metadata via IMDS, pod inventory, OOMKill events
+- **Hot** (time-critical, while the node is still reachable): pod inventory, OOMKill events
 - **Warm** (API-server backed, survives node removal): condition history, PodDisruptionBudget violations
+
+Instance metadata (EC2 instance ID, type, AZ, lifecycle, region) is resolved synchronously from node labels and `spec.providerID` — no IMDS call required.
 
 Both groups run simultaneously with a 90-second total timeout, designed to fit inside the AWS spot interruption 2-minute window. Partial failures are tolerated — a partial report is better than no report.
 
@@ -41,6 +43,7 @@ spec:
   nodeUID: abc-123-def-456
   terminationTime: "2026-03-23T12:00:01Z"
   terminationCause: SpotInterruption
+  initiatedBy: karpenter
   instanceMetadata:
     instanceID: i-0abc123def456
     instanceType: m5.xlarge
@@ -50,20 +53,38 @@ spec:
   nodeMetadata:
     kernelVersion: 5.10.0-1234
     osImage: Amazon Linux 2
+    containerRuntime: containerd://1.7.0
     kubeletVersion: v1.29.3
     allocatableCPU: "3920m"
     allocatableMemory: 14Gi
+    capacityCPU: "4"
+    capacityMemory: 16Gi
+    createdAt: "2026-03-01T09:00:00Z"
+    taints:
+      - key: node.kubernetes.io/unschedulable
+        effect: NoSchedule
   pods:
     - name: payments-7d8f9b-xkz2p
       namespace: production
       ownerKind: Deployment
       ownerName: payments
+      startTime: "2026-03-23T10:00:00Z"
       exitReason: Evicted
+      phase: Failed
+      cpuRequest: "250m"
+      memoryRequest: "512Mi"
+      cpuLimit: "500m"
+      memoryLimit: "1Gi"
+      restartCount: 2
+      containers:
+        - name: api
+          image: payments:v1.2.3
     - name: worker-abc
       namespace: jobs
       ownerKind: Job
       ownerName: nightly-report
       exitReason: Completed
+      phase: Succeeded
   oomKills:
     - podName: ml-inference-6c7d8e-9f0a
       namespace: ml
@@ -84,19 +105,22 @@ status:
 
 | Signal | Classified as |
 |--------|--------------|
-| AWS IMDS spot interruption notice | `SpotInterruption` |
+| Karpenter `karpenter.sh/disruption` taint on a spot node | `SpotInterruption` |
 | `cluster-autoscaler.kubernetes.io/scale-down` annotation | `ClusterAutoscalerScaleDown` |
-| `node.kubernetes.io/unschedulable` taint (no other signals) | `ManualDrain` |
 | `MemoryPressure`, `DiskPressure`, or `PIDPressure` condition = True | `NodeConditionFailure` |
+| `node.kubernetes.io/unschedulable` taint (no other signals) | `ManualDrain` |
+| AWS scheduled maintenance event | `CloudMaintenanceEvent` |
 | None of the above | `Unknown` |
+
+`initiatedBy` is also populated: `cluster-autoscaler` when the CA annotation is present, otherwise the Kubernetes field manager that last updated `spec.taints`.
 
 ## Evidence gathered
 
-- **Instance metadata** — EC2 instance ID, type, availability zone, lifecycle (spot/on-demand), region; spot interruption notice if present
-- **Pod inventory** — every pod that was scheduled on the node: namespace, owner workload (Deployment/StatefulSet/DaemonSet/Job/CronJob), start time, end time, exit reason (Evicted/Completed/OOMKilled/Error/Unknown), phase
+- **Instance metadata** — EC2 instance ID, type, availability zone, lifecycle (spot/on-demand), region; resolved from node labels and `spec.providerID`
+- **Pod inventory** — every pod that was scheduled on the node: namespace, owner workload (Deployment/StatefulSet/DaemonSet/Job/CronJob), start time, end time, exit reason (Evicted/Completed/OOMKilled/Error/Unknown), phase, resource requests and limits, restart count, container names and images
 - **OOM kills** — any container killed for exceeding its memory limit: pod, container, memory limit, timestamp
 - **Condition history** — all node conditions (Ready, MemoryPressure, DiskPressure, PIDPressure) with last transition times, enriched with Kubernetes Events
-- **Node metadata** — kernel version, OS image, container runtime, kubelet version, allocatable CPU and memory
+- **Node metadata** — kernel version, OS image, container runtime, kubelet version, allocatable and capacity CPU/memory, creation time, labels, taints
 - **PDB violations** — PodDisruptionBudgets whose selectors matched pods on the node, with disruption counts
 
 ## Status phases
@@ -132,6 +156,8 @@ Archival failures are retried with exponential backoff (base 30s, cap 10m) up to
 ## Deployment
 
 **Prerequisites:** a running Kubernetes cluster, `kubectl` configured, and cluster-admin permissions.
+
+The operator image is built with a multi-stage Dockerfile using `golang:1.24` for compilation and `gcr.io/distroless/static:nonroot` as the runtime base (runs as UID 65532).
 
 ```bash
 # 1. Install the CRD

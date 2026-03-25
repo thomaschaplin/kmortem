@@ -2,197 +2,90 @@ package collector
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
-	"io"
-	"net/http"
 	"strings"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
 
 	"github.com/thomaschaplin/kmortem/api/v1alpha1"
 )
 
-const (
-	imdsTokenTTL     = "21600"
-	imdsTokenPath    = "/latest/api/token"
-	imdsMetaPath     = "/latest/meta-data"
-	imdsSpotPath     = "/latest/meta-data/spot/termination-time"
-	imdsInstanceID   = "/latest/meta-data/instance-id"
-	imdsInstanceType = "/latest/meta-data/instance-type"
-	imdsAZ           = "/latest/meta-data/placement/availability-zone"
-	imdsRegion       = "/latest/meta-data/placement/region"
-	imdsLifecycle    = "/latest/meta-data/instance-life-cycle"
-	imdsTimeout      = 5 * time.Second
-)
-
-// InstanceMetadataCollector fetches AWS EC2 instance metadata from the IMDS
-// endpoint on the node's internal IP address.
-type InstanceMetadataCollector struct {
-	httpClient *http.Client
-}
+// InstanceMetadataCollector reads AWS EC2 instance metadata from the node
+// object — labels and spec.providerID — without contacting the IMDS endpoint.
+type InstanceMetadataCollector struct{}
 
 // NewInstanceMetadataCollector creates a new InstanceMetadataCollector.
 func NewInstanceMetadataCollector() *InstanceMetadataCollector {
-	return &InstanceMetadataCollector{
-		httpClient: &http.Client{Timeout: imdsTimeout},
-	}
+	return &InstanceMetadataCollector{}
 }
 
-// Collect fetches instance metadata and populates report.Spec.InstanceMetadata.
-func (c *InstanceMetadataCollector) Collect(ctx context.Context, node *corev1.Node, report *v1alpha1.NodeReport) error {
-	nodeIP := nodeInternalIP(node)
-	if nodeIP == "" {
-		return fmt.Errorf("instancemetadata: no internal IP found for node %s", node.Name)
-	}
-
-	base := fmt.Sprintf("http://%s", nodeIP)
-
-	// Attempt IMDSv2 token first; fall back to IMDSv1 if unavailable.
-	token, _ := c.fetchIMDSv2Token(ctx, base)
-
-	var errs []string
-
-	instanceID, err := c.fetchIMDS(ctx, base+imdsInstanceID, token)
-	if err != nil {
-		errs = append(errs, err.Error())
-	}
-
-	instanceType, err := c.fetchIMDS(ctx, base+imdsInstanceType, token)
-	if err != nil {
-		errs = append(errs, err.Error())
-	}
-
-	az, err := c.fetchIMDS(ctx, base+imdsAZ, token)
-	if err != nil {
-		errs = append(errs, err.Error())
-	}
-
-	region, err := c.fetchIMDS(ctx, base+imdsRegion, token)
-	if err != nil {
-		errs = append(errs, err.Error())
-	}
-
-	lifecycleRaw, err := c.fetchIMDS(ctx, base+imdsLifecycle, token)
-	if err != nil {
-		errs = append(errs, err.Error())
-	}
-
-	lifecycle := v1alpha1.LifecycleOnDemand
-	if strings.TrimSpace(lifecycleRaw) == "spot" {
-		lifecycle = v1alpha1.LifecycleSpot
-	}
+// Collect reads instance metadata from node labels and spec.providerID,
+// populating report.Spec.InstanceMetadata.
+func (c *InstanceMetadataCollector) Collect(_ context.Context, node *corev1.Node, report *v1alpha1.NodeReport) error {
+	labels := node.Labels
 
 	report.Spec.InstanceMetadata = v1alpha1.InstanceMetadata{
-		InstanceID:       strings.TrimSpace(instanceID),
-		InstanceType:     strings.TrimSpace(instanceType),
-		AvailabilityZone: strings.TrimSpace(az),
-		Region:           strings.TrimSpace(region),
-		Lifecycle:        lifecycle,
-	}
-
-	if len(errs) > 0 {
-		return fmt.Errorf("instancemetadata: partial failure: %s", strings.Join(errs, "; "))
+		InstanceID:       parseInstanceID(node.Spec.ProviderID),
+		InstanceType:     firstLabel(labels, "node.kubernetes.io/instance-type", "beta.kubernetes.io/instance-type"),
+		AvailabilityZone: firstLabel(labels, "topology.kubernetes.io/zone", "failure-domain.beta.kubernetes.io/zone"),
+		Region:           firstLabel(labels, "topology.kubernetes.io/region", "failure-domain.beta.kubernetes.io/region"),
+		Lifecycle:        resolveLifecycle(labels),
 	}
 	return nil
 }
 
-// fetchIMDSv2Token obtains an IMDSv2 session token.
-func (c *InstanceMetadataCollector) fetchIMDSv2Token(ctx context.Context, base string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, base+imdsTokenPath, nil)
-	if err != nil {
-		return "", err
+// parseInstanceID extracts the EC2 instance ID from a providerID string.
+// AWS providerID format: aws:///us-east-1a/i-0abc123def456
+func parseInstanceID(providerID string) string {
+	parts := strings.Split(providerID, "/")
+	if len(parts) == 0 {
+		return ""
 	}
-	req.Header.Set("X-aws-ec2-metadata-token-ttl-seconds", imdsTokenTTL)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return "", err
+	last := parts[len(parts)-1]
+	if strings.HasPrefix(last, "i-") {
+		return last
 	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-	return string(body), nil
+	return ""
 }
 
-// fetchIMDS performs a GET against an IMDS endpoint, optionally with an IMDSv2 token.
-func (c *InstanceMetadataCollector) fetchIMDS(ctx context.Context, url, token string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return "", err
-	}
-	if token != "" {
-		req.Header.Set("X-aws-ec2-metadata-token", token)
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("GET %s: %w", url, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound {
-		return "", nil
-	}
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("GET %s: unexpected status %d", url, resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-	return string(body), nil
-}
-
-// SpotInterruptionNotice is the JSON body of the IMDS spot termination endpoint.
-type SpotInterruptionNotice struct {
-	Time string `json:"time"`
-}
-
-// CheckSpotInterruption returns true if the node's IMDS is reporting a spot
-// termination notice. It is safe to call this before creating a NodeReport.
-func CheckSpotInterruption(ctx context.Context, node *corev1.Node) bool {
-	nodeIP := nodeInternalIP(node)
-	if nodeIP == "" {
-		return false
-	}
-
-	client := &http.Client{Timeout: imdsTimeout}
-	url := fmt.Sprintf("http://%s%s", nodeIP, imdsSpotPath)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return false
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return false
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusOK {
-		var notice SpotInterruptionNotice
-		if err := json.NewDecoder(resp.Body).Decode(&notice); err == nil && notice.Time != "" {
-			return true
+// resolveLifecycle determines spot vs on-demand from node labels.
+// Checks Karpenter (karpenter.sh/capacity-type), EKS
+// (eks.amazonaws.com/capacityType), and generic (node.kubernetes.io/lifecycle)
+// labels in that order.
+func resolveLifecycle(labels map[string]string) v1alpha1.Lifecycle {
+	if lc := labels["karpenter.sh/capacity-type"]; lc != "" {
+		switch strings.ToLower(lc) {
+		case "spot":
+			return v1alpha1.LifecycleSpot
+		case "on-demand":
+			return v1alpha1.LifecycleOnDemand
 		}
-		// Non-JSON 200 also counts
-		return true
 	}
-	return false
+	if cap := labels["eks.amazonaws.com/capacityType"]; cap != "" {
+		switch strings.ToUpper(cap) {
+		case "SPOT":
+			return v1alpha1.LifecycleSpot
+		case "ON_DEMAND":
+			return v1alpha1.LifecycleOnDemand
+		}
+	}
+	if lc := labels["node.kubernetes.io/lifecycle"]; lc != "" {
+		switch strings.ToLower(lc) {
+		case "spot":
+			return v1alpha1.LifecycleSpot
+		case "normal", "on-demand":
+			return v1alpha1.LifecycleOnDemand
+		}
+	}
+	return v1alpha1.LifecycleUnknown
 }
 
-// nodeInternalIP returns the InternalIP address of a node.
-func nodeInternalIP(node *corev1.Node) string {
-	for _, addr := range node.Status.Addresses {
-		if addr.Type == corev1.NodeInternalIP {
-			return addr.Address
+// firstLabel returns the value of the first key that exists in labels.
+func firstLabel(labels map[string]string, keys ...string) string {
+	for _, k := range keys {
+		if v, ok := labels[k]; ok && v != "" {
+			return v
 		}
 	}
 	return ""
 }
+

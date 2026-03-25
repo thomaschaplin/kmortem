@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -41,12 +42,13 @@ func (c *PodInventoryCollector) Collect(ctx context.Context, node *corev1.Node, 
 // podToRecord converts a Pod into a PodRecord.
 func podToRecord(pod *corev1.Pod) v1alpha1.PodRecord {
 	rec := v1alpha1.PodRecord{
-		Name:       pod.Name,
-		Namespace:  pod.Namespace,
-		OwnerKind:  resolveOwnerKind(pod),
-		OwnerName:  resolveOwnerName(pod),
-		ExitReason: resolvePodExitReason(pod),
-		Phase:      string(pod.Status.Phase),
+		Name:         pod.Name,
+		Namespace:    pod.Namespace,
+		OwnerKind:    resolveOwnerKind(pod),
+		OwnerName:    resolveOwnerName(pod),
+		ExitReason:   resolvePodExitReason(pod),
+		Phase:        string(pod.Status.Phase),
+		RestartCount: totalRestartCount(pod),
 	}
 
 	if pod.Status.StartTime != nil {
@@ -54,8 +56,18 @@ func podToRecord(pod *corev1.Pod) v1alpha1.PodRecord {
 		rec.StartTime = t
 	}
 
-	// Use the latest container termination time as the pod end time.
 	rec.EndTime = latestContainerEndTime(pod)
+
+	rec.CPURequest, rec.MemoryRequest, rec.CPULimit, rec.MemoryLimit = aggregateResources(pod)
+
+	containers := make([]v1alpha1.ContainerInfo, 0, len(pod.Spec.Containers))
+	for _, c := range pod.Spec.Containers {
+		containers = append(containers, v1alpha1.ContainerInfo{
+			Name:  c.Name,
+			Image: c.Image,
+		})
+	}
+	rec.Containers = containers
 
 	return rec
 }
@@ -82,12 +94,69 @@ func resolveOwnerKind(pod *corev1.Pod) v1alpha1.OwnerKind {
 }
 
 // resolveOwnerName returns the name of the owning workload. For ReplicaSet-owned
-// pods, it attempts to strip the ReplicaSet hash suffix to get the Deployment name.
+// pods, it strips the ReplicaSet hash suffix to recover the Deployment name.
 func resolveOwnerName(pod *corev1.Pod) string {
 	for _, ref := range pod.OwnerReferences {
+		if ref.Kind == "ReplicaSet" {
+			// ReplicaSet names are "<deployment>-<hash>"; strip the trailing hash.
+			if idx := lastDashIndex(ref.Name); idx >= 0 {
+				return ref.Name[:idx]
+			}
+		}
 		return ref.Name
 	}
 	return ""
+}
+
+// lastDashIndex returns the index of the last '-' in s, or -1 if not found.
+func lastDashIndex(s string) int {
+	for i := len(s) - 1; i >= 0; i-- {
+		if s[i] == '-' {
+			return i
+		}
+	}
+	return -1
+}
+
+// totalRestartCount sums restart counts across all containers in the pod.
+func totalRestartCount(pod *corev1.Pod) int32 {
+	var total int32
+	for _, cs := range pod.Status.ContainerStatuses {
+		total += cs.RestartCount
+	}
+	return total
+}
+
+// aggregateResources sums CPU and memory requests/limits across all containers.
+func aggregateResources(pod *corev1.Pod) (cpuReq, memReq, cpuLim, memLim string) {
+	var totalCPUReq, totalMemReq, totalCPULim, totalMemLim resource.Quantity
+	for _, c := range pod.Spec.Containers {
+		if v, ok := c.Resources.Requests[corev1.ResourceCPU]; ok {
+			totalCPUReq.Add(v)
+		}
+		if v, ok := c.Resources.Requests[corev1.ResourceMemory]; ok {
+			totalMemReq.Add(v)
+		}
+		if v, ok := c.Resources.Limits[corev1.ResourceCPU]; ok {
+			totalCPULim.Add(v)
+		}
+		if v, ok := c.Resources.Limits[corev1.ResourceMemory]; ok {
+			totalMemLim.Add(v)
+		}
+	}
+	if !totalCPUReq.IsZero() {
+		cpuReq = totalCPUReq.String()
+	}
+	if !totalMemReq.IsZero() {
+		memReq = totalMemReq.String()
+	}
+	if !totalCPULim.IsZero() {
+		cpuLim = totalCPULim.String()
+	}
+	if !totalMemLim.IsZero() {
+		memLim = totalMemLim.String()
+	}
+	return
 }
 
 // resolvePodExitReason determines the exit reason for a pod.

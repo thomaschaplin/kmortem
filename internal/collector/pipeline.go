@@ -6,9 +6,9 @@ import (
 	"strings"
 	"sync"
 
+	"golang.org/x/sync/errgroup"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"golang.org/x/sync/errgroup"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/thomaschaplin/kmortem/api/v1alpha1"
@@ -20,7 +20,6 @@ import (
 // Warm collectors run against API server data that persists after node removal.
 // Both groups start simultaneously.
 type Pipeline struct {
-	InstanceMetadata *InstanceMetadataCollector
 	PodInventory     *PodInventoryCollector
 	OOMKill          *OOMKillCollector
 	ConditionHistory *ConditionHistoryCollector
@@ -32,7 +31,6 @@ type Pipeline struct {
 // NewPipeline creates a Pipeline wiring all collectors.
 func NewPipeline(c client.Client, _ *kmortemconfig.Config) *Pipeline {
 	return &Pipeline{
-		InstanceMetadata: NewInstanceMetadataCollector(),
 		PodInventory:     NewPodInventoryCollector(c),
 		OOMKill:          NewOOMKillCollector(c),
 		ConditionHistory: NewConditionHistoryCollector(c),
@@ -45,8 +43,9 @@ func NewPipeline(c client.Client, _ *kmortemconfig.Config) *Pipeline {
 // It is safe to call from a goroutine; the caller is responsible for
 // ensuring ctx has an appropriate timeout.
 func (p *Pipeline) Run(ctx context.Context, node *corev1.Node, report *v1alpha1.NodeReport) {
-	// Capture node metadata directly from the node object — always available.
+	// Populate metadata synchronously from the node object — no API calls needed.
 	populateNodeMetadata(node, report)
+	populateInstanceMetadata(node, report)
 
 	var (
 		mu       sync.Mutex
@@ -62,13 +61,9 @@ func (p *Pipeline) Run(ctx context.Context, node *corev1.Node, report *v1alpha1.
 		}
 	}
 
-	// Hot group: time-critical collectors — node IP may become unreachable soon.
+	// Hot group: time-critical collectors — pod status is only accurate while
+	// the kubelet is still reporting.
 	hotGroup, hotCtx := errgroup.WithContext(ctx)
-	hotGroup.Go(func() error {
-		err := p.InstanceMetadata.Collect(hotCtx, node, report)
-		appendErr(&hotErrs, "instancemetadata", err)
-		return nil // never propagate — partial results are acceptable
-	})
 	hotGroup.Go(func() error {
 		err := p.PodInventory.Collect(hotCtx, node, report)
 		appendErr(&hotErrs, "podinventory", err)
@@ -132,22 +127,41 @@ func (p *Pipeline) finalise(ctx context.Context, report *v1alpha1.NodeReport, ho
 
 	report.Status.Conditions = conditions
 
-	// Persist the completed status back to the API server.
-	if err := p.client.Status().Update(ctx, report); err != nil {
-		// Best-effort — the report data is still in the object even if the
-		// status write fails; the NodeReportReconciler will fix it on next requeue.
+	// Save the status we intend to write — client.Update refreshes report from
+	// the server response, which has an empty status subresource and would
+	// overwrite the fields we just set.
+	status := report.Status
+
+	// Persist the collected spec data (pods, node metadata, etc.) to the API server.
+	if err := p.client.Update(ctx, report); err != nil {
 		_ = err
 	}
+
+	// Restore the status and persist it via the status subresource.
+	report.Status = status
+	if err := p.client.Status().Update(ctx, report); err != nil {
+		_ = err
+	}
+}
+
+// populateInstanceMetadata reads AWS instance metadata from node labels and
+// spec.providerID — no API calls required.
+func populateInstanceMetadata(node *corev1.Node, report *v1alpha1.NodeReport) {
+	collector := NewInstanceMetadataCollector()
+	_ = collector.Collect(context.Background(), node, report)
 }
 
 // populateNodeMetadata copies static node system info into the report.
 func populateNodeMetadata(node *corev1.Node, report *v1alpha1.NodeReport) {
 	ni := node.Status.NodeInfo
+	createdAt := node.CreationTimestamp.DeepCopy()
 	report.Spec.NodeMetadata = v1alpha1.NodeMetadata{
 		KernelVersion:    ni.KernelVersion,
 		OSImage:          ni.OSImage,
 		ContainerRuntime: ni.ContainerRuntimeVersion,
 		KubeletVersion:   ni.KubeletVersion,
+		CreatedAt:        createdAt,
+		Labels:           node.Labels,
 	}
 
 	if cpu, ok := node.Status.Allocatable[corev1.ResourceCPU]; ok {
@@ -156,4 +170,20 @@ func populateNodeMetadata(node *corev1.Node, report *v1alpha1.NodeReport) {
 	if mem, ok := node.Status.Allocatable[corev1.ResourceMemory]; ok {
 		report.Spec.NodeMetadata.AllocatableMemory = mem.String()
 	}
+	if cpu, ok := node.Status.Capacity[corev1.ResourceCPU]; ok {
+		report.Spec.NodeMetadata.CapacityCPU = cpu.String()
+	}
+	if mem, ok := node.Status.Capacity[corev1.ResourceMemory]; ok {
+		report.Spec.NodeMetadata.CapacityMemory = mem.String()
+	}
+
+	taints := make([]v1alpha1.TaintRecord, 0, len(node.Spec.Taints))
+	for _, t := range node.Spec.Taints {
+		taints = append(taints, v1alpha1.TaintRecord{
+			Key:    t.Key,
+			Value:  t.Value,
+			Effect: string(t.Effect),
+		})
+	}
+	report.Spec.NodeMetadata.Taints = taints
 }

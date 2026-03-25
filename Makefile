@@ -81,7 +81,7 @@ help:
 CONTROLLER_GEN = $(GOBIN)/controller-gen
 .PHONY: controller-gen
 controller-gen:
-	$(call go-install-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen@v0.14.0)
+	$(call go-install-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen@latest)
 
 define go-install-tool
 @[ -f $(1) ] || { \

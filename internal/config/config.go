@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	defaultRetentionTTL    = 30 * 24 * time.Hour
-	defaultArchivalPrefix  = "kmortem/nodereports/"
+	defaultRetentionTTL     = 30 * 24 * time.Hour
+	defaultArchivalPrefix   = "kmortem/nodereports/"
 	defaultArchivalProvider = "s3"
 )
 

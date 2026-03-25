@@ -8,12 +8,12 @@ import (
 type TerminationCause string
 
 const (
-	TerminationCauseSpotInterruption         TerminationCause = "SpotInterruption"
+	TerminationCauseSpotInterruption           TerminationCause = "SpotInterruption"
 	TerminationCauseClusterAutoscalerScaleDown TerminationCause = "ClusterAutoscalerScaleDown"
-	TerminationCauseManualDrain              TerminationCause = "ManualDrain"
-	TerminationCauseNodeConditionFailure     TerminationCause = "NodeConditionFailure"
-	TerminationCauseCloudMaintenanceEvent    TerminationCause = "CloudMaintenanceEvent"
-	TerminationCauseUnknown                 TerminationCause = "Unknown"
+	TerminationCauseManualDrain                TerminationCause = "ManualDrain"
+	TerminationCauseNodeConditionFailure       TerminationCause = "NodeConditionFailure"
+	TerminationCauseCloudMaintenanceEvent      TerminationCause = "CloudMaintenanceEvent"
+	TerminationCauseUnknown                    TerminationCause = "Unknown"
 )
 
 // Lifecycle describes the AWS instance purchasing option.
@@ -22,6 +22,7 @@ type Lifecycle string
 const (
 	LifecycleSpot     Lifecycle = "spot"
 	LifecycleOnDemand Lifecycle = "on-demand"
+	LifecycleUnknown  Lifecycle = "unknown"
 )
 
 // PodExitReason describes how a pod exited.
@@ -51,11 +52,11 @@ const (
 type StatusPhase string
 
 const (
-	StatusPhaseCollecting     StatusPhase = "Collecting"
-	StatusPhaseComplete       StatusPhase = "Complete"
+	StatusPhaseCollecting      StatusPhase = "Collecting"
+	StatusPhaseComplete        StatusPhase = "Complete"
 	StatusPhasePendingDeletion StatusPhase = "PendingDeletion"
-	StatusPhaseArchived       StatusPhase = "Archived"
-	StatusPhaseArchiveFailed  StatusPhase = "ArchiveFailed"
+	StatusPhaseArchived        StatusPhase = "Archived"
+	StatusPhaseArchiveFailed   StatusPhase = "ArchiveFailed"
 )
 
 // InstanceMetadata holds AWS instance information.
@@ -67,10 +68,20 @@ type InstanceMetadata struct {
 	// AvailabilityZone is the AZ the instance was in.
 	AvailabilityZone string `json:"availabilityZone,omitempty"`
 	// Lifecycle indicates spot or on-demand.
-	// +kubebuilder:validation:Enum=spot;on-demand
+	// +kubebuilder:validation:Enum=spot;on-demand;unknown
 	Lifecycle Lifecycle `json:"lifecycle,omitempty"`
 	// Region is the AWS region.
 	Region string `json:"region,omitempty"`
+}
+
+// TaintRecord holds a node taint.
+type TaintRecord struct {
+	// Key is the taint key.
+	Key string `json:"key"`
+	// Value is the taint value.
+	Value string `json:"value,omitempty"`
+	// Effect is the taint effect (NoSchedule, PreferNoSchedule, NoExecute).
+	Effect string `json:"effect"`
 }
 
 // NodeMetadata holds Kubernetes node system information.
@@ -87,6 +98,16 @@ type NodeMetadata struct {
 	AllocatableCPU string `json:"allocatableCPU,omitempty"`
 	// AllocatableMemory is the allocatable memory on the node.
 	AllocatableMemory string `json:"allocatableMemory,omitempty"`
+	// CapacityCPU is the total CPU capacity of the node.
+	CapacityCPU string `json:"capacityCPU,omitempty"`
+	// CapacityMemory is the total memory capacity of the node.
+	CapacityMemory string `json:"capacityMemory,omitempty"`
+	// CreatedAt is when the node was created.
+	CreatedAt *metav1.Time `json:"createdAt,omitempty"`
+	// Labels are the node's labels.
+	Labels map[string]string `json:"labels,omitempty"`
+	// Taints are the node's taints at the time of termination.
+	Taints []TaintRecord `json:"taints,omitempty"`
 }
 
 // ConditionRecord holds a snapshot of a node condition.
@@ -101,6 +122,14 @@ type ConditionRecord struct {
 	Message string `json:"message,omitempty"`
 	// LastTransitionTime is when the condition last changed.
 	LastTransitionTime *metav1.Time `json:"lastTransitionTime,omitempty"`
+}
+
+// ContainerInfo holds the name and image of a container.
+type ContainerInfo struct {
+	// Name is the container name.
+	Name string `json:"name"`
+	// Image is the container image.
+	Image string `json:"image"`
 }
 
 // PodRecord holds information about a pod that was on the node.
@@ -123,6 +152,18 @@ type PodRecord struct {
 	ExitReason PodExitReason `json:"exitReason,omitempty"`
 	// Phase is the last known pod phase.
 	Phase string `json:"phase,omitempty"`
+	// CPURequest is the total CPU requested by all containers in the pod.
+	CPURequest string `json:"cpuRequest,omitempty"`
+	// MemoryRequest is the total memory requested by all containers in the pod.
+	MemoryRequest string `json:"memoryRequest,omitempty"`
+	// CPULimit is the total CPU limit across all containers in the pod.
+	CPULimit string `json:"cpuLimit,omitempty"`
+	// MemoryLimit is the total memory limit across all containers in the pod.
+	MemoryLimit string `json:"memoryLimit,omitempty"`
+	// RestartCount is the total number of container restarts across all containers.
+	RestartCount int32 `json:"restartCount,omitempty"`
+	// Containers lists the containers in the pod with their images.
+	Containers []ContainerInfo `json:"containers,omitempty"`
 }
 
 // OOMKillRecord holds information about an OOMKill event.

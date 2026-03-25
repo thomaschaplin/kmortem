@@ -34,10 +34,10 @@ func init() {
 
 func main() {
 	var (
-		metricsAddr          string
-		healthProbeAddr      string
-		leaderElect          bool
-		leaderElectionNS     string
+		metricsAddr      string
+		healthProbeAddr  string
+		leaderElect      bool
+		leaderElectionNS string
 	)
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metrics endpoint binds to.")
@@ -152,6 +152,28 @@ func setupIndexers(ctx context.Context, mgr ctrl.Manager) error {
 			return nil
 		}
 		return []string{ev.InvolvedObject.Name}
+	}); err != nil {
+		return err
+	}
+
+	// Index NodeReports by spec.nodeUID for efficient deduplication lookups.
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &kmortemv1alpha1.NodeReport{}, "spec.nodeUID", func(obj client.Object) []string {
+		nr, ok := obj.(*kmortemv1alpha1.NodeReport)
+		if !ok {
+			return nil
+		}
+		return []string{nr.Spec.NodeUID}
+	}); err != nil {
+		return err
+	}
+
+	// Index events by involvedObject.kind.
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &corev1.Event{}, "involvedObject.kind", func(obj client.Object) []string {
+		ev, ok := obj.(*corev1.Event)
+		if !ok {
+			return nil
+		}
+		return []string{ev.InvolvedObject.Kind}
 	}); err != nil {
 		return err
 	}

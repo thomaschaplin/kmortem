@@ -2,7 +2,9 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,6 +31,10 @@ const (
 	// clusterAutoscalerAnnotation marks nodes queued for scale-down.
 	clusterAutoscalerAnnotation = "cluster-autoscaler.kubernetes.io/scale-down-disabled"
 	clusterAutoscalerScaleDown  = "cluster-autoscaler.kubernetes.io/scale-down"
+
+	// Karpenter signals.
+	karpenterDisruptionTaint   = "karpenter.sh/disruption"
+	karpenterCapacityTypeLabel = "karpenter.sh/capacity-type"
 )
 
 // NodeReconciler watches Node objects and creates a NodeReport when a node
@@ -139,9 +145,9 @@ func isTerminating(node *corev1.Node) bool {
 
 // classifyTerminationCause uses available signals to determine why the node
 // is being terminated.
-func classifyTerminationCause(ctx context.Context, node *corev1.Node) v1alpha1.TerminationCause {
-	// Spot interruption — check IMDS.
-	if collector.CheckSpotInterruption(ctx, node) {
+func classifyTerminationCause(_ context.Context, node *corev1.Node) v1alpha1.TerminationCause {
+	// Karpenter spot interruption: disruption taint present on a spot node.
+	if isKarpenterDisrupting(node) && isSpotNode(node) {
 		return v1alpha1.TerminationCauseSpotInterruption
 	}
 
@@ -160,7 +166,7 @@ func classifyTerminationCause(ctx context.Context, node *corev1.Node) v1alpha1.T
 		}
 	}
 
-	// Manual drain: field manager or unschedulable taint without other signals.
+	// Manual drain: unschedulable taint without other signals.
 	for _, taint := range node.Spec.Taints {
 		if taint.Key == nodeUnschedulableTaint {
 			return v1alpha1.TerminationCauseManualDrain
@@ -170,19 +176,38 @@ func classifyTerminationCause(ctx context.Context, node *corev1.Node) v1alpha1.T
 	return v1alpha1.TerminationCauseUnknown
 }
 
+// isKarpenterDisrupting returns true if Karpenter has set its disruption taint,
+// indicating it is actively draining the node.
+func isKarpenterDisrupting(node *corev1.Node) bool {
+	for _, taint := range node.Spec.Taints {
+		if taint.Key == karpenterDisruptionTaint && taint.Effect == corev1.TaintEffectNoSchedule {
+			return true
+		}
+	}
+	return false
+}
+
+// isSpotNode returns true if the node is a spot instance, based on Karpenter
+// or EKS capacity type labels.
+func isSpotNode(node *corev1.Node) bool {
+	labels := node.Labels
+	if labels[karpenterCapacityTypeLabel] == "spot" {
+		return true
+	}
+	if strings.ToUpper(labels["eks.amazonaws.com/capacityType"]) == "SPOT" {
+		return true
+	}
+	return false
+}
+
 // nodeReportExists returns true if a NodeReport already exists with the given
 // node UID in spec.nodeUID.
 func (r *NodeReconciler) nodeReportExists(ctx context.Context, nodeUID string) (bool, error) {
 	var list v1alpha1.NodeReportList
-	if err := r.List(ctx, &list); err != nil {
+	if err := r.List(ctx, &list, client.MatchingFields{"spec.nodeUID": nodeUID}); err != nil {
 		return false, fmt.Errorf("list NodeReports: %w", err)
 	}
-	for _, nr := range list.Items {
-		if nr.Spec.NodeUID == nodeUID {
-			return true, nil
-		}
-	}
-	return false, nil
+	return len(list.Items) > 0, nil
 }
 
 // createNodeReport creates a new NodeReport object for the terminating node.
@@ -198,6 +223,7 @@ func (r *NodeReconciler) createNodeReport(ctx context.Context, node *corev1.Node
 			NodeUID:          string(node.UID),
 			TerminationTime:  &now,
 			TerminationCause: cause,
+			InitiatedBy:      resolveInitiatedBy(node),
 		},
 		Status: v1alpha1.NodeReportStatus{
 			Phase:   v1alpha1.StatusPhaseCollecting,
@@ -217,6 +243,38 @@ func (r *NodeReconciler) createNodeReport(ctx context.Context, node *corev1.Node
 	}
 
 	return report, nil
+}
+
+// resolveInitiatedBy inspects the node's managed fields to determine which
+// field manager last set spec.taints, indicating who triggered the drain.
+func resolveInitiatedBy(node *corev1.Node) string {
+	// Cluster-autoscaler is identified by annotation.
+	if _, ok := node.Annotations[clusterAutoscalerScaleDown]; ok {
+		return "cluster-autoscaler"
+	}
+
+	// For everything else, find which field manager owns spec.taints.
+	for _, mf := range node.ManagedFields {
+		if mf.FieldsV1 == nil {
+			continue
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(mf.FieldsV1.Raw, &fields); err != nil {
+			continue
+		}
+		specRaw, ok := fields["f:spec"]
+		if !ok {
+			continue
+		}
+		var spec map[string]json.RawMessage
+		if err := json.Unmarshal(specRaw, &spec); err != nil {
+			continue
+		}
+		if _, hasTaints := spec["f:taints"]; hasTaints {
+			return mf.Manager
+		}
+	}
+	return ""
 }
 
 // SetupWithManager registers the NodeReconciler with the controller manager.

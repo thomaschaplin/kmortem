@@ -17,7 +17,6 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	kmortemv1alpha1 "github.com/thomaschaplin/kmortem/api/v1alpha1"
-	"github.com/thomaschaplin/kmortem/internal/archiver"
 	"github.com/thomaschaplin/kmortem/internal/collector"
 	"github.com/thomaschaplin/kmortem/internal/config"
 	"github.com/thomaschaplin/kmortem/internal/controller"
@@ -92,24 +91,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Optionally build the S3 archiver.
-	var arc archiver.Archiver
-	if cfg.Archival.Enabled {
-		s3arc, err := archiver.NewS3Archiver(rootCtx, &cfg.Archival)
-		if err != nil {
-			setupLog.Error(err, "unable to create S3 archiver")
-			os.Exit(1)
-		}
-		arc = s3arc
-	}
-
 	// Wire the NodeReportReconciler.
 	if err := (&controller.NodeReportReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorderFor("kmortem"),
 		Config:   cfg,
-		Archiver: arc,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create NodeReportReconciler")
 		os.Exit(1)
@@ -145,17 +132,6 @@ func setupIndexers(ctx context.Context, mgr ctrl.Manager) error {
 		return err
 	}
 
-	// Index events by involvedObject.name.
-	if err := mgr.GetFieldIndexer().IndexField(ctx, &corev1.Event{}, "involvedObject.name", func(obj client.Object) []string {
-		ev, ok := obj.(*corev1.Event)
-		if !ok {
-			return nil
-		}
-		return []string{ev.InvolvedObject.Name}
-	}); err != nil {
-		return err
-	}
-
 	// Index NodeReports by spec.nodeUID for efficient deduplication lookups.
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &kmortemv1alpha1.NodeReport{}, "spec.nodeUID", func(obj client.Object) []string {
 		nr, ok := obj.(*kmortemv1alpha1.NodeReport)
@@ -163,17 +139,6 @@ func setupIndexers(ctx context.Context, mgr ctrl.Manager) error {
 			return nil
 		}
 		return []string{nr.Spec.NodeUID}
-	}); err != nil {
-		return err
-	}
-
-	// Index events by involvedObject.kind.
-	if err := mgr.GetFieldIndexer().IndexField(ctx, &corev1.Event{}, "involvedObject.kind", func(obj client.Object) []string {
-		ev, ok := obj.(*corev1.Event)
-		if !ok {
-			return nil
-		}
-		return []string{ev.InvolvedObject.Kind}
 	}); err != nil {
 		return err
 	}

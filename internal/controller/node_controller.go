@@ -28,9 +28,7 @@ const (
 	// nodeUnschedulableTaint is applied when a node is cordoned.
 	nodeUnschedulableTaint = "node.kubernetes.io/unschedulable"
 
-	// clusterAutoscalerAnnotation marks nodes queued for scale-down.
-	clusterAutoscalerAnnotation = "cluster-autoscaler.kubernetes.io/scale-down-disabled"
-	clusterAutoscalerScaleDown  = "cluster-autoscaler.kubernetes.io/scale-down"
+	clusterAutoscalerScaleDown = "cluster-autoscaler.kubernetes.io/scale-down"
 
 	// Karpenter signals.
 	karpenterDisruptionTaint   = "karpenter.sh/disruption"

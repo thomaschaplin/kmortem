@@ -54,23 +54,6 @@ spec:
           spec:
             description: NodeReportSpec defines the desired state of NodeReport.
             properties:
-              archival:
-                description: Archival holds archival information.
-                properties:
-                  archivedAt:
-                    description: ArchivedAt is when the archival completed.
-                    format: date-time
-                    type: string
-                  bucket:
-                    description: Bucket is the S3 bucket name.
-                    type: string
-                  enabled:
-                    description: Enabled indicates whether archival is enabled.
-                    type: boolean
-                  key:
-                    description: Key is the S3 object key.
-                    type: string
-                type: object
               conditionHistory:
                 description: ConditionHistory is the history of node conditions.
                 items:
@@ -318,7 +301,6 @@ spec:
                 - ClusterAutoscalerScaleDown
                 - ManualDrain
                 - NodeConditionFailure
-                - CloudMaintenanceEvent
                 - Unknown
                 type: string
               terminationTime:
@@ -329,10 +311,6 @@ spec:
           status:
             description: NodeReportStatus defines the observed state of NodeReport.
             properties:
-              archiveFailureCount:
-                description: ArchiveFailureCount tracks how many times archival has
-                  been attempted.
-                type: integer
               collectionCompletedAt:
                 description: CollectionCompletedAt is when evidence collection finished.
                 format: date-time
@@ -368,9 +346,6 @@ spec:
                 enum:
                 - Collecting
                 - Complete
-                - PendingDeletion
-                - Archived
-                - ArchiveFailed
                 type: string
             type: object
         type: object

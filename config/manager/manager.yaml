@@ -34,8 +34,6 @@ spec:
         env:
         - name: KMORTEM_RETENTION_TTL
           value: "720h"
-        - name: KMORTEM_ARCHIVAL_ENABLED
-          value: "false"
         ports:
         - containerPort: 8080
           name: metrics

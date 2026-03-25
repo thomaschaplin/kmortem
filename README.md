@@ -109,7 +109,6 @@ status:
 | `cluster-autoscaler.kubernetes.io/scale-down` annotation | `ClusterAutoscalerScaleDown` |
 | `MemoryPressure`, `DiskPressure`, or `PIDPressure` condition = True | `NodeConditionFailure` |
 | `node.kubernetes.io/unschedulable` taint (no other signals) | `ManualDrain` |
-| AWS scheduled maintenance event | `CloudMaintenanceEvent` |
 | None of the above | `Unknown` |
 
 `initiatedBy` is also populated: `cluster-autoscaler` when the CA annotation is present, otherwise the Kubernetes field manager that last updated `spec.taints`.
@@ -129,9 +128,6 @@ status:
 |-------|---------|
 | `Collecting` | Evidence gathering in progress |
 | `Complete` | All available data recorded; TTL clock running |
-| `PendingDeletion` | TTL expired; S3 archival in progress |
-| `Archived` | Written to S3 successfully; pending deletion |
-| `ArchiveFailed` | S3 write failed; retrying with exponential backoff |
 
 ## Configuration
 
@@ -140,18 +136,6 @@ Configuration is loaded from environment variables on the manager pod.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `KMORTEM_RETENTION_TTL` | `720h` | How long `NodeReport` objects live in the cluster (30 days). Any Go duration string is accepted, e.g. `48h`. |
-| `KMORTEM_ARCHIVAL_ENABLED` | `false` | Set to `true` to archive reports to S3 before deletion. |
-| `KMORTEM_ARCHIVAL_BUCKET` | — | S3 bucket name. Required when archival is enabled. |
-| `KMORTEM_ARCHIVAL_PREFIX` | `kmortem/nodereports/` | S3 key prefix. |
-| `KMORTEM_ARCHIVAL_REGION` | — | AWS region. Falls back to the SDK default chain if unset. |
-
-When archival is enabled, each `NodeReport` is serialised to JSON and written to:
-
-```
-s3://{bucket}/{prefix}{nodeName}-{nodeUID}.json
-```
-
-Archival failures are retried with exponential backoff (base 30s, cap 10m) up to 5 times. After max retries a warning event is emitted and the report is deleted rather than held indefinitely.
 
 ## Deployment
 
@@ -176,20 +160,6 @@ Or use the Makefile shortcut:
 ```bash
 make deploy
 ```
-
-To configure S3 archival, set the environment variables on the manager Deployment:
-
-```yaml
-env:
-  - name: KMORTEM_ARCHIVAL_ENABLED
-    value: "true"
-  - name: KMORTEM_ARCHIVAL_BUCKET
-    value: "my-cluster-forensics"
-  - name: KMORTEM_ARCHIVAL_REGION
-    value: "eu-west-1"
-```
-
-The operator requires an IAM role (via IRSA or instance profile) with `s3:PutObject` on the target bucket.
 
 ## Development
 

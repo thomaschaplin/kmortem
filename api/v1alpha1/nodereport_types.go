@@ -12,8 +12,7 @@ const (
 	TerminationCauseClusterAutoscalerScaleDown TerminationCause = "ClusterAutoscalerScaleDown"
 	TerminationCauseManualDrain                TerminationCause = "ManualDrain"
 	TerminationCauseNodeConditionFailure       TerminationCause = "NodeConditionFailure"
-	TerminationCauseCloudMaintenanceEvent      TerminationCause = "CloudMaintenanceEvent"
-	TerminationCauseUnknown                    TerminationCause = "Unknown"
+	TerminationCauseUnknown TerminationCause = "Unknown"
 )
 
 // Lifecycle describes the AWS instance purchasing option.
@@ -52,11 +51,8 @@ const (
 type StatusPhase string
 
 const (
-	StatusPhaseCollecting      StatusPhase = "Collecting"
-	StatusPhaseComplete        StatusPhase = "Complete"
-	StatusPhasePendingDeletion StatusPhase = "PendingDeletion"
-	StatusPhaseArchived        StatusPhase = "Archived"
-	StatusPhaseArchiveFailed   StatusPhase = "ArchiveFailed"
+	StatusPhaseCollecting StatusPhase = "Collecting"
+	StatusPhaseComplete   StatusPhase = "Complete"
 )
 
 // InstanceMetadata holds AWS instance information.
@@ -190,18 +186,6 @@ type PDBViolationRecord struct {
 	Reason string `json:"reason,omitempty"`
 }
 
-// ArchivalRecord holds information about where the NodeReport was archived.
-type ArchivalRecord struct {
-	// Enabled indicates whether archival is enabled.
-	Enabled bool `json:"enabled,omitempty"`
-	// Bucket is the S3 bucket name.
-	Bucket string `json:"bucket,omitempty"`
-	// Key is the S3 object key.
-	Key string `json:"key,omitempty"`
-	// ArchivedAt is when the archival completed.
-	ArchivedAt *metav1.Time `json:"archivedAt,omitempty"`
-}
-
 // NodeReportSpec defines the desired state of NodeReport.
 type NodeReportSpec struct {
 	// NodeName is the name of the terminated node.
@@ -211,7 +195,7 @@ type NodeReportSpec struct {
 	// TerminationTime is when the node termination was detected.
 	TerminationTime *metav1.Time `json:"terminationTime,omitempty"`
 	// TerminationCause classifies why the node was terminated.
-	// +kubebuilder:validation:Enum=SpotInterruption;ClusterAutoscalerScaleDown;ManualDrain;NodeConditionFailure;CloudMaintenanceEvent;Unknown
+	// +kubebuilder:validation:Enum=SpotInterruption;ClusterAutoscalerScaleDown;ManualDrain;NodeConditionFailure;Unknown
 	TerminationCause TerminationCause `json:"terminationCause,omitempty"`
 	// InitiatedBy describes who or what triggered the drain.
 	InitiatedBy string `json:"initiatedBy,omitempty"`
@@ -227,8 +211,6 @@ type NodeReportSpec struct {
 	OOMKills []OOMKillRecord `json:"oomKills,omitempty"`
 	// PDBViolations is the list of PDB violations during drain.
 	PDBViolations []PDBViolationRecord `json:"pdbViolations,omitempty"`
-	// Archival holds archival information.
-	Archival ArchivalRecord `json:"archival,omitempty"`
 }
 
 // NodeReportStatusCondition is a condition on a NodeReport.
@@ -248,7 +230,7 @@ type NodeReportStatusCondition struct {
 // NodeReportStatus defines the observed state of NodeReport.
 type NodeReportStatus struct {
 	// Phase is the current lifecycle phase of the NodeReport.
-	// +kubebuilder:validation:Enum=Collecting;Complete;PendingDeletion;Archived;ArchiveFailed
+	// +kubebuilder:validation:Enum=Collecting;Complete
 	Phase StatusPhase `json:"phase,omitempty"`
 	// Message is a human-readable status message.
 	Message string `json:"message,omitempty"`
@@ -256,8 +238,6 @@ type NodeReportStatus struct {
 	CollectionCompletedAt *metav1.Time `json:"collectionCompletedAt,omitempty"`
 	// Conditions are detailed status conditions.
 	Conditions []NodeReportStatusCondition `json:"conditions,omitempty"`
-	// ArchiveFailureCount tracks how many times archival has been attempted.
-	ArchiveFailureCount int `json:"archiveFailureCount,omitempty"`
 }
 
 // +kubebuilder:object:root=true

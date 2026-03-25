@@ -10,7 +10,7 @@ kmortem runs two controllers:
 
 **NodeReconciler** watches all Node objects. When it detects termination signals (cordoned taint, failed Ready condition, cluster-autoscaler annotation, Karpenter disruption taint, or deletion timestamp), it creates a `NodeReport` and immediately dispatches a background goroutine to collect evidence. The reconciler itself returns instantly — it never blocks on collection.
 
-**NodeReportReconciler** manages the lifecycle of `NodeReport` objects: checking collection progress, enforcing TTL expiry, optionally archiving to S3, and finally deleting the object.
+**NodeReportReconciler** manages the lifecycle of `NodeReport` objects: checking collection progress, enforcing TTL expiry, and deleting the object once the TTL elapses.
 
 Evidence is gathered by four collectors split into two parallel groups:
 
@@ -118,7 +118,7 @@ status:
 - **Instance metadata** — EC2 instance ID, type, availability zone, lifecycle (spot/on-demand), region; resolved from node labels and `spec.providerID`
 - **Pod inventory** — every pod that was scheduled on the node: namespace, owner workload (Deployment/StatefulSet/DaemonSet/Job/CronJob), start time, end time, exit reason (Evicted/Completed/OOMKilled/Error/Unknown), phase, resource requests and limits, restart count, container names and images
 - **OOM kills** — any container killed for exceeding its memory limit: pod, container, memory limit, timestamp
-- **Condition history** — all node conditions (Ready, MemoryPressure, DiskPressure, PIDPressure) with last transition times, enriched with Kubernetes Events
+- **Condition history** — all node conditions (Ready, MemoryPressure, DiskPressure, PIDPressure) with last transition times; status values are always `True`, `False`, or `Unknown`
 - **Node metadata** — kernel version, OS image, container runtime, kubelet version, allocatable and capacity CPU/memory, creation time, labels, taints
 - **PDB violations** — PodDisruptionBudgets whose selectors matched pods on the node, with disruption counts
 

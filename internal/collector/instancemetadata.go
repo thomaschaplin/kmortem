@@ -88,4 +88,3 @@ func firstLabel(labels map[string]string, keys ...string) string {
 	}
 	return ""
 }
-

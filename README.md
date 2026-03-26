@@ -189,3 +189,11 @@ make docker-push IMG=my-registry/kmortem:dev
 - **Kind:** `NodeReport`
 - **Short name:** `nr`
 - **Scope:** Cluster
+
+## Transparency
+
+Yes, every line of this was vibe-coded. Not a single character was typed by a human with intent. And you know what? It works, it solves a real problem, and it shipped in an afternoon instead of a sprint.
+
+We live in an era where the bottleneck isn't writing code — it's having good ideas and the judgement to know when something is worth building. So instead of spending a week hand-crafting the perfect operator, this one was described, reasoned about, and iterated on in plain English.
+
+The nodes still die. The evidence still doesn't. Ship fast, solve problems. Now go build something else.

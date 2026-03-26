@@ -1,3 +1,5 @@
+<img src="assets/logo.png" alt="logo" width="256" height="256" />
+
 # kmortem
 
 > **Nodes die. Evidence shouldn't.**

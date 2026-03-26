@@ -13,13 +13,17 @@ else
 GOBIN           = $(shell go env GOBIN)
 endif
 
-.PHONY: all build test fmt vet lint clean docker-build docker-push deploy undeploy manifests generate help
+.PHONY: all build build-plugin test fmt vet lint clean docker-build docker-push deploy undeploy manifests generate help
 
 all: build
 
 ## build: Build the operator binary.
 build: fmt vet
-	go build $(GOFLAGS) -o bin/$(BINARY_NAME) ./cmd/...
+	go build $(GOFLAGS) -o bin/$(BINARY_NAME) ./cmd/main.go
+
+## build-plugin: Build the kubectl-kmortem plugin binary.
+build-plugin: fmt vet
+	go build $(GOFLAGS) -o bin/kubectl-kmortem ./cmd/kubectl-kmortem/...
 
 ## test: Run unit tests.
 test: fmt vet

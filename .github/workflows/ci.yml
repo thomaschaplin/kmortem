@@ -61,3 +61,17 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+  helm-template:
+    name: Helm Template
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+
+      - name: Render and summarise
+        run: |
+          echo '```yaml' >> "$GITHUB_STEP_SUMMARY"
+          helm template kmortem charts/kmortem/ >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

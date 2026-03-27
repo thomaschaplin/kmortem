@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   release:
-    name: Bump version and release
+    name: Release
     # Only run when the PR was actually merged and carries a release label.
     if: |
       github.event.pull_request.merged == true &&
@@ -31,43 +31,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Determine bump type
-        id: bump
-        env:
-          LABELS: ${{ toJson(github.event.pull_request.labels.*.name) }}
-        run: |
-          if echo "$LABELS" | grep -q 'release:major'; then
-            echo "type=major" >> "$GITHUB_OUTPUT"
-          elif echo "$LABELS" | grep -q 'release:minor'; then
-            echo "type=minor" >> "$GITHUB_OUTPUT"
-          else
-            echo "type=patch" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Calculate next version
+      - name: Read version from Chart.yaml
         id: version
         run: |
-          # Find the latest semver tag; default to v0.0.0 if none exist.
-          LATEST=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
-          LATEST=${LATEST:-v0.0.0}
-          echo "Current version: $LATEST"
-
-          # Strip leading 'v' and split.
-          VERSION=${LATEST#v}
-          MAJOR=$(echo "$VERSION" | cut -d. -f1)
-          MINOR=$(echo "$VERSION" | cut -d. -f2)
-          PATCH=$(echo "$VERSION" | cut -d. -f3)
-
-          case "${{ steps.bump.outputs.type }}" in
-            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
-            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
-            patch) PATCH=$((PATCH + 1)) ;;
-          esac
-
-          NEW="v${MAJOR}.${MINOR}.${PATCH}"
-          echo "New version: $NEW"
-          echo "new=$NEW" >> "$GITHUB_OUTPUT"
-          echo "new_plain=${MAJOR}.${MINOR}.${PATCH}" >> "$GITHUB_OUTPUT"
+          VERSION=$(grep '^version:' charts/kmortem/Chart.yaml | awk '{print $2}')
+          echo "new=v${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Create and push git tag
         run: |

@@ -4,9 +4,6 @@ on:
   push:
     branches:
       - "**"
-  pull_request:
-    branches:
-      - main
 
 permissions:
   contents: read
@@ -38,8 +35,6 @@ jobs:
   build-push:
     name: Build and Push Image
     runs-on: ubuntu-latest
-    # Only push images on direct pushes, not on pull_request events.
-    if: github.event_name == 'push'
     steps:
       - uses: actions/checkout@v4
 

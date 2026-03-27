@@ -1,3 +1,8 @@
+# Override the chart name used in resource names.
+nameOverride: ""
+# Override the full resource name prefix (overrides nameOverride too).
+fullnameOverride: ""
+
 image:
   repository: ghcr.io/thomaschaplin/kmortem
   # tag defaults to .Chart.AppVersion when empty
@@ -16,7 +21,7 @@ namespace:
 
 serviceAccount:
   create: true
-  # Defaults to "<fullname>-manager" when empty.
+  # Defaults to "<release-name>-manager" when empty.
   name: ""
 
 # KMORTEM_RETENTION_TTL — how long NodeReports are kept before deletion.

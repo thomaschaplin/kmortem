@@ -37,12 +37,15 @@ def main() -> None:
 
     src_text = SRC.read_text()
 
-    rules_idx = src_text.find("rules:")
+    # controller-gen always emits 'rules:' as a top-level key at column 0.
+    # We rely on it being the first occurrence in the file, which holds as long
+    # as the generator doesn't add description fields containing 'rules:'.
+    rules_idx = src_text.find("\nrules:")
     if rules_idx == -1:
         print(f"error: no 'rules:' section found in {SRC}", file=sys.stderr)
         sys.exit(1)
 
-    rules_section = src_text[rules_idx:].rstrip()
+    rules_section = src_text[rules_idx + 1:].rstrip()  # +1 to skip the leading newline
 
     out = HELM_HEADER + rules_section + "\n"
     DST.write_text(out)

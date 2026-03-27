@@ -53,7 +53,7 @@ ServiceAccount name.
 */}}
 {{- define "kmortem.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
-{{- default (printf "%s-manager" (include "kmortem.fullname" .)) .Values.serviceAccount.name }}
+{{- default (printf "%s-manager" .Release.Name) .Values.serviceAccount.name }}
 {{- else }}
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}

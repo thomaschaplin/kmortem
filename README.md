@@ -141,27 +141,47 @@ Configuration is loaded from environment variables on the manager pod.
 
 ## Deployment
 
-**Prerequisites:** a running Kubernetes cluster, `kubectl` configured, and cluster-admin permissions.
+**Prerequisites:** a running Kubernetes cluster and `kubectl` configured with cluster-admin permissions.
 
-The operator image is built with a multi-stage Dockerfile using `golang:1.24` for compilation and `gcr.io/distroless/static:nonroot` as the runtime base (runs as UID 65532).
-
-```bash
-# 1. Install the CRD
-kubectl apply -f config/crd/bases/kmortem.io_nodereports.yaml
-
-# 2. Create the namespace and RBAC
-kubectl apply -f config/manager/namespace.yaml
-kubectl apply -f config/rbac/
-
-# 3. Deploy the operator
-kubectl apply -f config/manager/manager.yaml
-```
-
-Or use the Makefile shortcut:
+The operator is distributed as a Helm chart. The chart installs the CRD, RBAC, namespace, and Deployment in one step.
 
 ```bash
-make deploy
+helm install kmortem oci://ghcr.io/thomaschaplin/kmortem/charts/kmortem
 ```
+
+To customise the installation (image tag, retention TTL, resource limits, etc.) pass values at install time:
+
+```bash
+helm install kmortem oci://ghcr.io/thomaschaplin/kmortem/charts/kmortem \
+  --set retentionTTL=48h \
+  --set resources.limits.memory=256Mi
+```
+
+To upgrade:
+
+```bash
+helm upgrade kmortem oci://ghcr.io/thomaschaplin/kmortem/charts/kmortem
+```
+
+### Helm values
+
+| Value | Default | Description |
+|-------|---------|-------------|
+| `image.repository` | `ghcr.io/thomaschaplin/kmortem` | Container image repository |
+| `image.tag` | `""` (uses `appVersion`) | Image tag override |
+| `image.pullPolicy` | `IfNotPresent` | Image pull policy |
+| `replicaCount` | `1` | Number of operator replicas |
+| `installCRDs` | `true` | Install the NodeReport CRD; set `false` if managing CRDs externally |
+| `namespace.create` | `true` | Create the release namespace |
+| `serviceAccount.create` | `true` | Create a ServiceAccount |
+| `serviceAccount.name` | `""` (auto-generated) | ServiceAccount name override |
+| `retentionTTL` | `720h` | NodeReport retention duration |
+| `leaderElection.enabled` | `true` | Enable leader election |
+| `leaderElection.namespace` | `""` (uses release namespace) | Namespace for leader election lease |
+| `resources.limits.cpu` | `500m` | CPU limit |
+| `resources.limits.memory` | `128Mi` | Memory limit |
+| `resources.requests.cpu` | `10m` | CPU request |
+| `resources.requests.memory` | `64Mi` | Memory request |
 
 ## Development
 

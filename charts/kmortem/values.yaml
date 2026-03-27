@@ -1,0 +1,36 @@
+image:
+  repository: ghcr.io/thomaschaplin/kmortem
+  # tag defaults to .Chart.AppVersion when empty
+  tag: ""
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+# Install the NodeReport CRD as a pre-install/pre-upgrade hook.
+# Set to false if you manage CRDs externally (e.g. via GitOps).
+installCRDs: true
+
+namespace:
+  # Create the release namespace. Set to false if you pre-create it.
+  create: true
+
+serviceAccount:
+  create: true
+  # Defaults to "<fullname>-manager" when empty.
+  name: ""
+
+# KMORTEM_RETENTION_TTL — how long NodeReports are kept before deletion.
+retentionTTL: "720h"
+
+leaderElection:
+  enabled: true
+  # Defaults to the Helm release namespace when empty.
+  namespace: ""
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 128Mi
+  requests:
+    cpu: 10m
+    memory: 64Mi

@@ -35,6 +35,12 @@ jobs:
       - name: Test
         run: go test -v -race -count=1 ./...
 
+      - name: Check Helm chart sync
+        run: |
+          python3 hack/sync-helm-crd.py
+          python3 hack/sync-helm-rbac.py
+          git diff --exit-code charts/kmortem/templates/crd.yaml charts/kmortem/templates/clusterrole.yaml
+
   build-push:
     name: Build and Push Image
     runs-on: ubuntu-latest

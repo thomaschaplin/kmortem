@@ -114,13 +114,15 @@ spec:
                     description: AllocatableCPU is the allocatable CPU on the node.
                     type: string
                   allocatableMemory:
-                    description: AllocatableMemory is the allocatable memory on the node.
+                    description: AllocatableMemory is the allocatable memory on the
+                      node.
                     type: string
                   capacityCPU:
                     description: CapacityCPU is the total CPU capacity of the node.
                     type: string
                   capacityMemory:
-                    description: CapacityMemory is the total memory capacity of the node.
+                    description: CapacityMemory is the total memory capacity of the
+                      node.
                     type: string
                   containerRuntime:
                     description: ContainerRuntime is the container runtime version.
@@ -130,7 +132,8 @@ spec:
                     format: date-time
                     type: string
                   kernelVersion:
-                    description: KernelVersion is the kernel version reported by the node.
+                    description: KernelVersion is the kernel version reported by the
+                      node.
                     type: string
                   kubeletVersion:
                     description: KubeletVersion is the kubelet version.
@@ -149,7 +152,8 @@ spec:
                       description: TaintRecord holds a node taint.
                       properties:
                         effect:
-                          description: Effect is the taint effect (NoSchedule, PreferNoSchedule, NoExecute).
+                          description: Effect is the taint effect (NoSchedule, PreferNoSchedule,
+                            NoExecute).
                           type: string
                         key:
                           description: Key is the taint key.
@@ -195,7 +199,8 @@ spec:
               pdbViolations:
                 description: PDBViolations is the list of PDB violations during drain.
                 items:
-                  description: PDBViolationRecord holds information about a PodDisruptionBudget violation.
+                  description: PDBViolationRecord holds information about a PodDisruptionBudget
+                    violation.
                   properties:
                     namespace:
                       description: Namespace is the namespace of the PDB.
@@ -211,10 +216,12 @@ spec:
               pods:
                 description: Pods is the list of pods that were on the node.
                 items:
-                  description: PodRecord holds information about a pod that was on the node.
+                  description: PodRecord holds information about a pod that was on
+                    the node.
                   properties:
                     containers:
-                      description: Containers lists the containers in the pod with their images.
+                      description: Containers lists the containers in the pod with
+                        their images.
                       items:
                         description: ContainerInfo holds the name and image of a container.
                         properties:
@@ -230,10 +237,12 @@ spec:
                         type: object
                       type: array
                     cpuLimit:
-                      description: CPULimit is the total CPU limit across all containers in the pod.
+                      description: CPULimit is the total CPU limit across all containers
+                        in the pod.
                       type: string
                     cpuRequest:
-                      description: CPURequest is the total CPU requested by all containers in the pod.
+                      description: CPURequest is the total CPU requested by all containers
+                        in the pod.
                       type: string
                     endTime:
                       description: EndTime is when the pod terminated.
@@ -249,10 +258,12 @@ spec:
                       - Unknown
                       type: string
                     memoryLimit:
-                      description: MemoryLimit is the total memory limit across all containers in the pod.
+                      description: MemoryLimit is the total memory limit across all
+                        containers in the pod.
                       type: string
                     memoryRequest:
-                      description: MemoryRequest is the total memory requested by all containers in the pod.
+                      description: MemoryRequest is the total memory requested by
+                        all containers in the pod.
                       type: string
                     name:
                       description: Name is the pod name.
@@ -277,7 +288,8 @@ spec:
                       description: Phase is the last known pod phase.
                       type: string
                     restartCount:
-                      description: RestartCount is the total number of container restarts across all containers.
+                      description: RestartCount is the total number of container restarts
+                        across all containers.
                       format: int32
                       type: integer
                     startTime:

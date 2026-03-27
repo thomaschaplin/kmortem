@@ -3,7 +3,7 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: {{ .Release.Namespace }}
+  name: {{ include "kmortem.namespace" . }}
   labels:
     {{- include "kmortem.labels" . | nindent 4 }}
 {{- end }}

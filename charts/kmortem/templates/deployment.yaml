@@ -3,7 +3,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "kmortem.fullname" . }}-manager
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ include "kmortem.namespace" . }}
   labels:
     {{- include "kmortem.labels" . | nindent 4 }}
     control-plane: manager

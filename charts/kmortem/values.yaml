@@ -16,7 +16,9 @@ replicaCount: 1
 installCRDs: true
 
 namespace:
-  # Create the release namespace. Set to false if you pre-create it.
+  # Name of the namespace to deploy into.
+  name: kmortem
+  # Create the namespace. Set to false if you pre-create it.
   create: true
 
 serviceAccount:
@@ -29,7 +31,7 @@ retentionTTL: "720h"
 
 leaderElection:
   enabled: true
-  # Defaults to the Helm release namespace when empty.
+  # Defaults to namespace.name when empty.
   namespace: ""
 
 resources:

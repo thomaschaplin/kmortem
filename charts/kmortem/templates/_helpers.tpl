@@ -68,8 +68,15 @@ Container image reference.
 {{- end }}
 
 {{/*
-Leader election namespace — falls back to the release namespace.
+Deployment namespace — uses namespace.name value, falling back to the Helm release namespace.
+*/}}
+{{- define "kmortem.namespace" -}}
+{{- .Values.namespace.name }}
+{{- end }}
+
+{{/*
+Leader election namespace — falls back to the deployment namespace.
 */}}
 {{- define "kmortem.leaderElectionNamespace" -}}
-{{- default .Release.Namespace .Values.leaderElection.namespace }}
+{{- default (include "kmortem.namespace" .) .Values.leaderElection.namespace }}
 {{- end }}

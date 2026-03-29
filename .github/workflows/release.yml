@@ -51,6 +51,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Install Helm
+        uses: azure/setup-helm@v5
+
+      - name: Package and push Helm chart
+        run: |
+          VERSION=${{ steps.version.outputs.new }}
+          helm package charts/kmortem/
+          helm push kmortem-${VERSION#v}.tgz oci://ghcr.io/${{ github.repository }}/charts
+
       - name: Build and push versioned image
         uses: docker/build-push-action@v7
         with:

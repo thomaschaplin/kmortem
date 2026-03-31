@@ -71,8 +71,7 @@ generate:
 ## deploy: Deploy the operator to the cluster via Helm.
 deploy:
 	helm upgrade --install kmortem charts/kmortem/ \
-		--namespace kmortem \
-		--create-namespace
+		--namespace kmortem
 
 ## undeploy: Remove the operator from the cluster.
 undeploy:

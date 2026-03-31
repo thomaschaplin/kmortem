@@ -71,7 +71,7 @@ Container image reference.
 Deployment namespace — uses namespace.name value, falling back to the Helm release namespace.
 */}}
 {{- define "kmortem.namespace" -}}
-{{- .Values.namespace.name }}
+{{- .Values.namespace.name | default .Release.Namespace }}
 {{- end }}
 
 {{/*

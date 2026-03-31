@@ -19,6 +19,7 @@ SRC = REPO_ROOT / "config" / "rbac" / "role.yaml"
 DST = REPO_ROOT / "charts" / "kmortem" / "templates" / "clusterrole.yaml"
 
 HELM_HEADER = """\
+{{- if .Values.rbac.create }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -47,7 +48,7 @@ def main() -> None:
 
     rules_section = src_text[rules_idx + 1:].rstrip()  # +1 to skip the leading newline
 
-    out = HELM_HEADER + rules_section + "\n"
+    out = HELM_HEADER + rules_section + "\n{{- end }}\n"
     DST.write_text(out)
     print(f"synced: {SRC.relative_to(REPO_ROOT)} → {DST.relative_to(REPO_ROOT)}")
 

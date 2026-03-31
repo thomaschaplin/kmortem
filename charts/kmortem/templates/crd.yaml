@@ -1,0 +1,360 @@
+{{- if .Values.installCRDs }}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": hook-failed
+  name: nodereports.kmortem.io
+spec:
+  group: kmortem.io
+  names:
+    kind: NodeReport
+    listKind: NodeReportList
+    plural: nodereports
+    shortNames:
+    - nr
+    singular: nodereport
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.nodeName
+      name: Node
+      type: string
+    - jsonPath: .spec.terminationCause
+      name: Cause
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: NodeReport is the Schema for the nodereports API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: NodeReportSpec defines the desired state of NodeReport.
+            properties:
+              conditionHistory:
+                description: ConditionHistory is the history of node conditions.
+                items:
+                  description: ConditionRecord holds a snapshot of a node condition.
+                  properties:
+                    lastTransitionTime:
+                      description: LastTransitionTime is when the condition last changed.
+                      format: date-time
+                      type: string
+                    message:
+                      description: Message is a human-readable message.
+                      type: string
+                    reason:
+                      description: Reason is a machine-readable reason string.
+                      type: string
+                    status:
+                      description: Status is the condition status (True, False, Unknown).
+                      type: string
+                    type:
+                      description: Type is the condition type (e.g. Ready, MemoryPressure).
+                      type: string
+                  type: object
+                type: array
+              initiatedBy:
+                description: InitiatedBy describes who or what triggered the drain.
+                type: string
+              instanceMetadata:
+                description: InstanceMetadata holds AWS instance information.
+                properties:
+                  availabilityZone:
+                    description: AvailabilityZone is the AZ the instance was in.
+                    type: string
+                  instanceID:
+                    description: InstanceID is the AWS EC2 instance ID.
+                    type: string
+                  instanceType:
+                    description: InstanceType is the EC2 instance type (e.g. m5.large).
+                    type: string
+                  lifecycle:
+                    description: Lifecycle indicates spot or on-demand.
+                    enum:
+                    - spot
+                    - on-demand
+                    - unknown
+                    type: string
+                  region:
+                    description: Region is the AWS region.
+                    type: string
+                type: object
+              nodeMetadata:
+                description: NodeMetadata holds Kubernetes node system information.
+                properties:
+                  allocatableCPU:
+                    description: AllocatableCPU is the allocatable CPU on the node.
+                    type: string
+                  allocatableMemory:
+                    description: AllocatableMemory is the allocatable memory on the
+                      node.
+                    type: string
+                  capacityCPU:
+                    description: CapacityCPU is the total CPU capacity of the node.
+                    type: string
+                  capacityMemory:
+                    description: CapacityMemory is the total memory capacity of the
+                      node.
+                    type: string
+                  containerRuntime:
+                    description: ContainerRuntime is the container runtime version.
+                    type: string
+                  createdAt:
+                    description: CreatedAt is when the node was created.
+                    format: date-time
+                    type: string
+                  kernelVersion:
+                    description: KernelVersion is the kernel version reported by the
+                      node.
+                    type: string
+                  kubeletVersion:
+                    description: KubeletVersion is the kubelet version.
+                    type: string
+                  labels:
+                    additionalProperties:
+                      type: string
+                    description: Labels are the node's labels.
+                    type: object
+                  osImage:
+                    description: OSImage is the OS image reported by the node.
+                    type: string
+                  taints:
+                    description: Taints are the node's taints at the time of termination.
+                    items:
+                      description: TaintRecord holds a node taint.
+                      properties:
+                        effect:
+                          description: Effect is the taint effect (NoSchedule, PreferNoSchedule,
+                            NoExecute).
+                          type: string
+                        key:
+                          description: Key is the taint key.
+                          type: string
+                        value:
+                          description: Value is the taint value.
+                          type: string
+                      required:
+                      - effect
+                      - key
+                      type: object
+                    type: array
+                type: object
+              nodeName:
+                description: NodeName is the name of the terminated node.
+                type: string
+              nodeUID:
+                description: NodeUID is the UID of the node, used for deduplication.
+                type: string
+              oomKills:
+                description: OOMKills is the list of OOMKill events on the node.
+                items:
+                  description: OOMKillRecord holds information about an OOMKill event.
+                  properties:
+                    containerName:
+                      description: ContainerName is the name of the OOMKilled container.
+                      type: string
+                    memoryLimit:
+                      description: MemoryLimit is the memory limit that was exceeded.
+                      type: string
+                    namespace:
+                      description: Namespace is the namespace of the affected pod.
+                      type: string
+                    podName:
+                      description: PodName is the name of the affected pod.
+                      type: string
+                    timestamp:
+                      description: Timestamp is when the OOMKill occurred.
+                      format: date-time
+                      type: string
+                  type: object
+                type: array
+              pdbViolations:
+                description: PDBViolations is the list of PDB violations during drain.
+                items:
+                  description: PDBViolationRecord holds information about a PodDisruptionBudget
+                    violation.
+                  properties:
+                    namespace:
+                      description: Namespace is the namespace of the PDB.
+                      type: string
+                    pdbName:
+                      description: PDBName is the name of the PodDisruptionBudget.
+                      type: string
+                    reason:
+                      description: Reason explains why the PDB was violated.
+                      type: string
+                  type: object
+                type: array
+              pods:
+                description: Pods is the list of pods that were on the node.
+                items:
+                  description: PodRecord holds information about a pod that was on
+                    the node.
+                  properties:
+                    containers:
+                      description: Containers lists the containers in the pod with
+                        their images.
+                      items:
+                        description: ContainerInfo holds the name and image of a container.
+                        properties:
+                          image:
+                            description: Image is the container image.
+                            type: string
+                          name:
+                            description: Name is the container name.
+                            type: string
+                        required:
+                        - image
+                        - name
+                        type: object
+                      type: array
+                    cpuLimit:
+                      description: CPULimit is the total CPU limit across all containers
+                        in the pod.
+                      type: string
+                    cpuRequest:
+                      description: CPURequest is the total CPU requested by all containers
+                        in the pod.
+                      type: string
+                    endTime:
+                      description: EndTime is when the pod terminated.
+                      format: date-time
+                      type: string
+                    exitReason:
+                      description: ExitReason describes how the pod exited.
+                      enum:
+                      - Evicted
+                      - Completed
+                      - OOMKilled
+                      - Error
+                      - Unknown
+                      type: string
+                    memoryLimit:
+                      description: MemoryLimit is the total memory limit across all
+                        containers in the pod.
+                      type: string
+                    memoryRequest:
+                      description: MemoryRequest is the total memory requested by
+                        all containers in the pod.
+                      type: string
+                    name:
+                      description: Name is the pod name.
+                      type: string
+                    namespace:
+                      description: Namespace is the pod namespace.
+                      type: string
+                    ownerKind:
+                      description: OwnerKind is the kind of the owning workload.
+                      enum:
+                      - Deployment
+                      - StatefulSet
+                      - DaemonSet
+                      - Job
+                      - CronJob
+                      - None
+                      type: string
+                    ownerName:
+                      description: OwnerName is the name of the owning workload.
+                      type: string
+                    phase:
+                      description: Phase is the last known pod phase.
+                      type: string
+                    restartCount:
+                      description: RestartCount is the total number of container restarts
+                        across all containers.
+                      format: int32
+                      type: integer
+                    startTime:
+                      description: StartTime is when the pod started.
+                      format: date-time
+                      type: string
+                  type: object
+                type: array
+              terminationCause:
+                description: TerminationCause classifies why the node was terminated.
+                enum:
+                - SpotInterruption
+                - ClusterAutoscalerScaleDown
+                - ManualDrain
+                - NodeConditionFailure
+                - Unknown
+                type: string
+              terminationTime:
+                description: TerminationTime is when the node termination was detected.
+                format: date-time
+                type: string
+            type: object
+          status:
+            description: NodeReportStatus defines the observed state of NodeReport.
+            properties:
+              collectionCompletedAt:
+                description: CollectionCompletedAt is when evidence collection finished.
+                format: date-time
+                type: string
+              conditions:
+                description: Conditions are detailed status conditions.
+                items:
+                  description: NodeReportStatusCondition is a condition on a NodeReport.
+                  properties:
+                    lastTransitionTime:
+                      description: LastTransitionTime is when the condition last changed.
+                      format: date-time
+                      type: string
+                    message:
+                      description: Message is a human-readable message.
+                      type: string
+                    reason:
+                      description: Reason is a machine-readable reason string.
+                      type: string
+                    status:
+                      description: Status is the condition status (True, False, Unknown).
+                      type: string
+                    type:
+                      description: Type is the condition type.
+                      type: string
+                  type: object
+                type: array
+              message:
+                description: Message is a human-readable status message.
+                type: string
+              phase:
+                description: Phase is the current lifecycle phase of the NodeReport.
+                enum:
+                - Collecting
+                - Complete
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+{{- end }}

@@ -1,0 +1,48 @@
+# Override the chart name used in resource names.
+nameOverride: ""
+# Override the full resource name prefix (overrides nameOverride too).
+fullnameOverride: ""
+
+image:
+  repository: ghcr.io/thomaschaplin/kmortem
+  # tag defaults to .Chart.AppVersion when empty
+  tag: ""
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+# Install the NodeReport CRD as a pre-install/pre-upgrade hook.
+# Set to false if you manage CRDs externally (e.g. via GitOps).
+installCRDs: true
+
+namespace:
+  # Name of the namespace to deploy into.
+  name: kmortem
+  # Create the namespace. Set to false if you pre-create it.
+  create: true
+
+serviceAccount:
+  create: true
+  # Defaults to "<release-name>-manager" when empty.
+  name: ""
+
+# Create the ClusterRole and ClusterRoleBinding. Set to false if you manage
+# RBAC externally.
+rbac:
+  create: true
+
+# KMORTEM_RETENTION_TTL — how long NodeReports are kept before deletion.
+retentionTTL: "720h"
+
+leaderElection:
+  enabled: true
+  # Defaults to namespace.name when empty.
+  namespace: ""
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 128Mi
+  requests:
+    cpu: 10m
+    memory: 64Mi

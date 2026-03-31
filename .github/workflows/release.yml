@@ -1,0 +1,76 @@
+name: Release
+
+on:
+  pull_request:
+    types:
+      - closed
+    branches:
+      - main
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    name: Release
+    # Only run when the PR was actually merged and carries a release label.
+    if: |
+      github.event.pull_request.merged == true &&
+      (
+        contains(github.event.pull_request.labels.*.name, 'release:major') ||
+        contains(github.event.pull_request.labels.*.name, 'release:minor') ||
+        contains(github.event.pull_request.labels.*.name, 'release:patch')
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Read version from Chart.yaml
+        id: version
+        run: |
+          VERSION=$(grep '^version:' charts/kmortem/Chart.yaml | awk '{print $2}')
+          echo "new=v${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push git tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag ${{ steps.version.outputs.new }}
+          git push origin ${{ steps.version.outputs.new }}
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5
+
+      - name: Package and push Helm chart
+        run: |
+          VERSION=${{ steps.version.outputs.new }}
+          helm package charts/kmortem/
+          helm push kmortem-${VERSION#v}.tgz oci://ghcr.io/${{ github.repository }}/charts
+
+      - name: Build and push versioned image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ steps.version.outputs.new }}
+            ghcr.io/${{ github.repository }}:latest
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.new }}
+          generate_release_notes: true

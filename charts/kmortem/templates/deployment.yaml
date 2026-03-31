@@ -2,38 +2,39 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: kmortem-manager
-  namespace: kmortem
+  name: {{ include "kmortem.fullname" . }}-manager
+  namespace: {{ include "kmortem.namespace" . }}
   labels:
-    app: kmortem
+    {{- include "kmortem.labels" . | nindent 4 }}
     control-plane: manager
 spec:
-  replicas: 1
+  replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
+      {{- include "kmortem.selectorLabels" . | nindent 6 }}
       control-plane: manager
   template:
     metadata:
       labels:
-        app: kmortem
+        {{- include "kmortem.selectorLabels" . | nindent 8 }}
         control-plane: manager
     spec:
-      serviceAccountName: kmortem-manager
+      serviceAccountName: {{ include "kmortem.serviceAccountName" . }}
       terminationGracePeriodSeconds: 30
       securityContext:
         runAsNonRoot: true
       containers:
       - name: manager
-        image: kmortem:latest
-        imagePullPolicy: IfNotPresent
+        image: {{ include "kmortem.image" . }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
         args:
-        - --leader-elect=true
-        - --leader-election-namespace=kmortem
+        - --leader-elect={{ .Values.leaderElection.enabled }}
+        - --leader-election-namespace={{ include "kmortem.leaderElectionNamespace" . }}
         - --metrics-bind-address=:8080
         - --health-probe-bind-address=:8081
         env:
         - name: KMORTEM_RETENTION_TTL
-          value: "720h"
+          value: {{ .Values.retentionTTL | quote }}
         ports:
         - containerPort: 8080
           name: metrics
@@ -54,12 +55,7 @@ spec:
           initialDelaySeconds: 5
           periodSeconds: 10
         resources:
-          limits:
-            cpu: 500m
-            memory: 128Mi
-          requests:
-            cpu: 10m
-            memory: 64Mi
+          {{- toYaml .Values.resources | nindent 10 }}
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:

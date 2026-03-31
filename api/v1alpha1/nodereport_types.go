@@ -12,7 +12,7 @@ const (
 	TerminationCauseClusterAutoscalerScaleDown TerminationCause = "ClusterAutoscalerScaleDown"
 	TerminationCauseManualDrain                TerminationCause = "ManualDrain"
 	TerminationCauseNodeConditionFailure       TerminationCause = "NodeConditionFailure"
-	TerminationCauseUnknown TerminationCause = "Unknown"
+	TerminationCauseUnknown                    TerminationCause = "Unknown"
 )
 
 // Lifecycle describes the AWS instance purchasing option.

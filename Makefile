@@ -13,7 +13,7 @@ else
 GOBIN           = $(shell go env GOBIN)
 endif
 
-.PHONY: all build test fmt vet lint clean docker-build docker-push deploy undeploy manifests generate help
+.PHONY: all build test fmt vet lint clean docker-build docker-push deploy undeploy manifests generate sync-helm-crds sync-helm-rbac help
 
 all: build
 
@@ -49,28 +49,33 @@ docker-build:
 docker-push:
 	docker push $(IMG)
 
-## manifests: Generate CRD and RBAC manifests (requires controller-gen).
-manifests:
+## manifests: Generate CRD and RBAC manifests and sync into Helm chart.
+manifests: controller-gen
 	$(CONTROLLER_GEN) rbac:roleName=kmortem-manager-role crd paths="./..." \
 		output:crd:artifacts:config=config/crd/bases \
 		output:rbac:artifacts:config=config/rbac
+	$(MAKE) sync-helm-crds sync-helm-rbac
+
+## sync-helm-crds: Sync CRD from config/crd/bases/ into Helm chart template.
+sync-helm-crds:
+	python3 hack/sync-helm-crd.py
+
+## sync-helm-rbac: Sync RBAC rules from config/rbac/ into Helm chart template.
+sync-helm-rbac:
+	python3 hack/sync-helm-rbac.py
 
 ## generate: Generate DeepCopy methods (requires controller-gen).
 generate:
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
 
-## deploy: Deploy the operator to the cluster.
-deploy: manifests
-	kubectl apply -f config/manager/namespace.yaml
-	kubectl apply -f config/crd/bases/
-	kubectl apply -f config/rbac/
-	kubectl apply -f config/manager/manager.yaml
+## deploy: Deploy the operator to the cluster via Helm.
+deploy:
+	helm upgrade --install kmortem charts/kmortem/ \
+		--namespace kmortem
 
 ## undeploy: Remove the operator from the cluster.
 undeploy:
-	kubectl delete --ignore-not-found=true -f config/manager/manager.yaml
-	kubectl delete --ignore-not-found=true -f config/rbac/
-	kubectl delete --ignore-not-found=true -f config/crd/bases/
+	helm uninstall kmortem --namespace kmortem
 
 ## help: Show this help message.
 help:

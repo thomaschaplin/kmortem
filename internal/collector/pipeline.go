@@ -8,6 +8,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -125,23 +126,108 @@ func (p *Pipeline) finalise(ctx context.Context, report *v1alpha1.NodeReport, ho
 		})
 	}
 
-	report.Status.Conditions = conditions
-
+	// Persist the collected spec data (pods, node metadata, etc.) to the API server.
 	// Save the status we intend to write — client.Update refreshes report from
 	// the server response, which has an empty status subresource and would
 	// overwrite the fields we just set.
-	status := report.Status
-
-	// Persist the collected spec data (pods, node metadata, etc.) to the API server.
 	if err := p.client.Update(ctx, report); err != nil {
 		_ = err
 	}
 
+	// Create per-pod PodReport objects from the collected pod inventory.
+	podReportErrs := p.createPodReports(ctx, report)
+	if len(podReportErrs) > 0 {
+		conditions = append(conditions, v1alpha1.NodeReportStatusCondition{
+			Type:               "PodReportCreationPartialFailure",
+			Status:             "True",
+			Reason:             "PodReportCreationError",
+			Message:            strings.Join(podReportErrs, "; "),
+			LastTransitionTime: &now,
+		})
+	}
+
+	report.Status.Conditions = conditions
+
 	// Restore the status and persist it via the status subresource.
+	status := report.Status
 	report.Status = status
 	if err := p.client.Status().Update(ctx, report); err != nil {
 		_ = err
 	}
+}
+
+// createPodReports creates a namespace-scoped PodReport for each pod in the
+// NodeReport. Data is derived directly from the already-collected report spec —
+// no additional API calls to the kubelet are needed.
+func (p *Pipeline) createPodReports(ctx context.Context, report *v1alpha1.NodeReport) []string {
+	type podKey struct{ ns, name string }
+
+	// Build an OOM index keyed by namespace/podName for O(1) lookup.
+	oomIndex := make(map[podKey][]v1alpha1.OOMKillRecord, len(report.Spec.OOMKills))
+	for _, o := range report.Spec.OOMKills {
+		k := podKey{o.Namespace, o.PodName}
+		oomIndex[k] = append(oomIndex[k], o)
+	}
+
+	var errs []string
+	for _, pod := range report.Spec.Pods {
+		// Skip deduplication check if there's no UID to key on.
+		if pod.PodUID != "" {
+			var existing v1alpha1.PodReportList
+			if err := p.client.List(ctx, &existing,
+				client.InNamespace(pod.Namespace),
+				client.MatchingFields{"spec.podUID": pod.PodUID},
+			); err == nil && len(existing.Items) > 0 {
+				continue
+			}
+		}
+
+		k := podKey{pod.Namespace, pod.Name}
+		pr := &v1alpha1.PodReport{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      pod.Name,
+				Namespace: pod.Namespace,
+			},
+			Spec: v1alpha1.PodReportSpec{
+				NodeReportName:   report.Name,
+				NodeReportUID:    string(report.UID),
+				NodeName:         report.Spec.NodeName,
+				TerminationCause: report.Spec.TerminationCause,
+				PodName:          pod.Name,
+				PodUID:           pod.PodUID,
+				Namespace:        pod.Namespace,
+				OwnerKind:        pod.OwnerKind,
+				OwnerName:        pod.OwnerName,
+				StartTime:        pod.StartTime,
+				EndTime:          pod.EndTime,
+				ExitReason:       pod.ExitReason,
+				Phase:            pod.Phase,
+				CPURequest:       pod.CPURequest,
+				MemoryRequest:    pod.MemoryRequest,
+				CPULimit:         pod.CPULimit,
+				MemoryLimit:      pod.MemoryLimit,
+				RestartCount:     pod.RestartCount,
+				Containers:       pod.Containers,
+				OOMKills:         oomIndex[k],
+			},
+		}
+
+		if err := p.client.Create(ctx, pr); err != nil {
+			if !k8serrors.IsAlreadyExists(err) {
+				errs = append(errs, fmt.Sprintf("podreport %s/%s: %v", pod.Namespace, pod.Name, err))
+			}
+			continue
+		}
+
+		pr.Status = v1alpha1.PodReportStatus{
+			Phase:   v1alpha1.StatusPhaseComplete,
+			Message: "Created from NodeReport " + report.Name,
+		}
+		if err := p.client.Status().Update(ctx, pr); err != nil {
+			errs = append(errs, fmt.Sprintf("podreport status %s/%s: %v", pod.Namespace, pod.Name, err))
+		}
+	}
+	return errs
 }
 
 // populateInstanceMetadata reads AWS instance metadata from node labels and

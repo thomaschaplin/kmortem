@@ -56,6 +56,7 @@ func podToRecord(pod *corev1.Pod) v1alpha1.PodRecord {
 		rec.StartTime = t
 	}
 
+	rec.PodUID = string(pod.UID)
 	rec.EndTime = latestContainerEndTime(pod)
 
 	rec.CPURequest, rec.MemoryRequest, rec.CPULimit, rec.MemoryLimit = aggregateResources(pod)

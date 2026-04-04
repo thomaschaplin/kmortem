@@ -72,11 +72,27 @@ func (r *NodeReportReconciler) reconcileComplete(ctx context.Context, report *v1
 	return r.deleteReport(ctx, report)
 }
 
-// deleteReport deletes the NodeReport object from the cluster.
+// deleteReport deletes all PodReports linked to the NodeReport, then deletes
+// the NodeReport itself.
 func (r *NodeReportReconciler) deleteReport(ctx context.Context, report *v1alpha1.NodeReport) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
-	logger.Info("deleting NodeReport", "nodereport", report.Name)
 
+	// Cascade-delete all PodReports that belong to this NodeReport.
+	var podReports v1alpha1.PodReportList
+	if err := r.List(ctx, &podReports,
+		client.MatchingFields{"spec.nodeReportName": report.Name},
+	); err != nil {
+		return ctrl.Result{}, fmt.Errorf("list PodReports for NodeReport %s: %w", report.Name, err)
+	}
+	for i := range podReports.Items {
+		pr := &podReports.Items[i]
+		logger.Info("deleting PodReport", "namespace", pr.Namespace, "podreport", pr.Name)
+		if err := r.Delete(ctx, pr); err != nil && !errors.IsNotFound(err) {
+			return ctrl.Result{}, fmt.Errorf("delete PodReport %s/%s: %w", pr.Namespace, pr.Name, err)
+		}
+	}
+
+	logger.Info("deleting NodeReport", "nodereport", report.Name)
 	if err := r.Delete(ctx, report); err != nil {
 		if errors.IsNotFound(err) {
 			return ctrl.Result{}, nil

@@ -287,6 +287,10 @@ spec:
                     phase:
                       description: Phase is the last known pod phase.
                       type: string
+                    podUID:
+                      description: PodUID is the UID of the pod, used for deduplication
+                        of PodReports.
+                      type: string
                     restartCount:
                       description: RestartCount is the total number of container restarts
                         across all containers.
@@ -347,6 +351,208 @@ spec:
                 type: string
               phase:
                 description: Phase is the current lifecycle phase of the NodeReport.
+                enum:
+                - Collecting
+                - Complete
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": hook-failed
+  name: podreports.kmortem.io
+spec:
+  group: kmortem.io
+  names:
+    kind: PodReport
+    listKind: PodReportList
+    plural: podreports
+    shortNames:
+    - pr
+    singular: podreport
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.podName
+      name: Pod
+      type: string
+    - jsonPath: .spec.nodeName
+      name: Node
+      type: string
+    - jsonPath: .spec.exitReason
+      name: Exit
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: PodReport is the Schema for the podreports API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: PodReportSpec defines the desired state of PodReport.
+            properties:
+              containers:
+                description: Containers lists the containers and their images.
+                items:
+                  description: ContainerInfo holds the name and image of a container.
+                  properties:
+                    image:
+                      description: Image is the container image.
+                      type: string
+                    name:
+                      description: Name is the container name.
+                      type: string
+                  required:
+                  - image
+                  - name
+                  type: object
+                type: array
+              cpuLimit:
+                description: CPULimit is the total CPU limit across all containers.
+                type: string
+              cpuRequest:
+                description: CPURequest is the total CPU requested across all containers.
+                type: string
+              endTime:
+                description: EndTime is when the pod terminated.
+                format: date-time
+                type: string
+              exitReason:
+                description: ExitReason describes how the pod exited.
+                enum:
+                - Evicted
+                - Completed
+                - OOMKilled
+                - Error
+                - Unknown
+                type: string
+              memoryLimit:
+                description: MemoryLimit is the total memory limit across all containers.
+                type: string
+              memoryRequest:
+                description: MemoryRequest is the total memory requested across all
+                  containers.
+                type: string
+              namespace:
+                description: Namespace is the namespace the pod belonged to.
+                type: string
+              nodeReportName:
+                description: NodeReportName is the name of the parent NodeReport.
+                type: string
+              nodeReportUID:
+                description: NodeReportUID is the UID of the parent NodeReport, for
+                  cross-reference integrity.
+                type: string
+              nodeName:
+                description: NodeName is the name of the node the pod was scheduled
+                  on.
+                type: string
+              oomKills:
+                description: OOMKills is the list of OOMKill events for this pod.
+                items:
+                  description: OOMKillRecord holds information about an OOMKill event.
+                  properties:
+                    containerName:
+                      description: ContainerName is the name of the OOMKilled container.
+                      type: string
+                    memoryLimit:
+                      description: MemoryLimit is the memory limit that was exceeded.
+                      type: string
+                    namespace:
+                      description: Namespace is the namespace of the affected pod.
+                      type: string
+                    podName:
+                      description: PodName is the name of the affected pod.
+                      type: string
+                    timestamp:
+                      description: Timestamp is when the OOMKill occurred.
+                      format: date-time
+                      type: string
+                  type: object
+                type: array
+              ownerKind:
+                description: OwnerKind is the kind of the owning workload.
+                enum:
+                - Deployment
+                - StatefulSet
+                - DaemonSet
+                - Job
+                - CronJob
+                - None
+                type: string
+              ownerName:
+                description: OwnerName is the name of the owning workload.
+                type: string
+              phase:
+                description: Phase is the last known pod phase.
+                type: string
+              podName:
+                description: PodName is the name of the pod.
+                type: string
+              podUID:
+                description: PodUID is the UID of the pod, used for deduplication.
+                type: string
+              restartCount:
+                description: RestartCount is the total container restarts across all
+                  containers.
+                format: int32
+                type: integer
+              startTime:
+                description: StartTime is when the pod started.
+                format: date-time
+                type: string
+              terminationCause:
+                description: TerminationCause is the node termination cause, copied
+                  from the NodeReport.
+                enum:
+                - SpotInterruption
+                - ClusterAutoscalerScaleDown
+                - ManualDrain
+                - NodeConditionFailure
+                - Unknown
+                type: string
+            type: object
+          status:
+            description: PodReportStatus defines the observed state of PodReport.
+            properties:
+              message:
+                description: Message is a human-readable status message.
+                type: string
+              phase:
+                description: Phase is the current lifecycle phase of the PodReport.
                 enum:
                 - Collecting
                 - Complete

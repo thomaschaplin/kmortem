@@ -160,6 +160,8 @@ type PodRecord struct {
 	RestartCount int32 `json:"restartCount,omitempty"`
 	// Containers lists the containers in the pod with their images.
 	Containers []ContainerInfo `json:"containers,omitempty"`
+	// PodUID is the UID of the pod, used for deduplication of PodReports.
+	PodUID string `json:"podUID,omitempty"`
 }
 
 // OOMKillRecord holds information about an OOMKill event.

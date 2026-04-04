@@ -102,6 +102,16 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Wire the PodReportReconciler.
+	if err := (&controller.PodReportReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+		Config: cfg,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create PodReportReconciler")
+		os.Exit(1)
+	}
+
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")
 		os.Exit(1)
@@ -139,6 +149,34 @@ func setupIndexers(ctx context.Context, mgr ctrl.Manager) error {
 			return nil
 		}
 		return []string{nr.Spec.NodeUID}
+	}); err != nil {
+		return err
+	}
+
+	// Index PodReports by spec.podUID for deduplication in createPodReports.
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &kmortemv1alpha1.PodReport{}, "spec.podUID", func(obj client.Object) []string {
+		pr, ok := obj.(*kmortemv1alpha1.PodReport)
+		if !ok {
+			return nil
+		}
+		if pr.Spec.PodUID == "" {
+			return nil
+		}
+		return []string{pr.Spec.PodUID}
+	}); err != nil {
+		return err
+	}
+
+	// Index PodReports by spec.nodeReportName for cascade delete in deleteReport.
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &kmortemv1alpha1.PodReport{}, "spec.nodeReportName", func(obj client.Object) []string {
+		pr, ok := obj.(*kmortemv1alpha1.PodReport)
+		if !ok {
+			return nil
+		}
+		if pr.Spec.NodeReportName == "" {
+			return nil
+		}
+		return []string{pr.Spec.NodeReportName}
 	}); err != nil {
 		return err
 	}

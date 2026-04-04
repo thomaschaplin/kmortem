@@ -59,6 +59,26 @@ rules:
   - update
   - patch
 - apiGroups:
+  - kmortem.io
+  resources:
+  - podreports
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - kmortem.io
+  resources:
+  - podreports/status
+  verbs:
+  - get
+  - update
+  - patch
+- apiGroups:
   - coordination.k8s.io
   resources:
   - leases

@@ -283,6 +283,10 @@ spec:
                     phase:
                       description: Phase is the last known pod phase.
                       type: string
+                    podUID:
+                      description: PodUID is the UID of the pod, used for deduplication
+                        of PodReports.
+                      type: string
                     restartCount:
                       description: RestartCount is the total number of container restarts
                         across all containers.

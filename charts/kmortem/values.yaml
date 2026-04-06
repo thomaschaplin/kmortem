@@ -8,18 +8,24 @@ image:
   # tag defaults to .Chart.AppVersion when empty
   tag: ""
   pullPolicy: IfNotPresent
+  # List of image pull secret names to attach to the pod spec.
+  # e.g. pullSecrets: [ghcr-secret]
+  pullSecrets: []
 
 replicaCount: 1
 
-# Install the NodeReport CRD as a pre-install/pre-upgrade hook.
+# Install the NodeReport CRD as part of the release.
 # Set to false if you manage CRDs externally (e.g. via GitOps).
 installCRDs: true
 
 namespace:
   # Name of the namespace to deploy into.
   name: kmortem
-  # Create the namespace. Set to false if you pre-create it.
-  create: true
+  # Create the namespace as a chart resource. Disabled by default because
+  # helm upgrade --install uses --create-namespace to bootstrap the namespace
+  # before chart resources are validated, avoiding a chicken-and-egg error.
+  # Enable only if you manage deployments without --create-namespace.
+  create: false
 
 serviceAccount:
   create: true

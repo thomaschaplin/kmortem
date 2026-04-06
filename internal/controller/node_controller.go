@@ -208,13 +208,25 @@ func (r *NodeReconciler) nodeReportExists(ctx context.Context, nodeUID string) (
 	return len(list.Items) > 0, nil
 }
 
+// nodeReportName returns a unique NodeReport name derived from the node name
+// and UID. Embedding the UID ensures that node instances sharing a name
+// (e.g. after replacement in an autoscaling group) produce distinct reports.
+func nodeReportName(nodeName, nodeUID string) string {
+	const maxPrefix = 253 - 37 // 37 = len("-") + len(uuid)
+	if len(nodeName) > maxPrefix {
+		nodeName = nodeName[:maxPrefix]
+	}
+	return nodeName + "-" + nodeUID
+}
+
 // createNodeReport creates a new NodeReport object for the terminating node.
 func (r *NodeReconciler) createNodeReport(ctx context.Context, node *corev1.Node, cause v1alpha1.TerminationCause) (*v1alpha1.NodeReport, error) {
 	now := metav1.Now()
+	name := nodeReportName(node.Name, string(node.UID))
 
 	report := &v1alpha1.NodeReport{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: node.Name,
+			Name: name,
 		},
 		Spec: v1alpha1.NodeReportSpec{
 			NodeName:         node.Name,
@@ -232,7 +244,7 @@ func (r *NodeReconciler) createNodeReport(ctx context.Context, node *corev1.Node
 	if err := r.Create(ctx, report); err != nil {
 		if errors.IsAlreadyExists(err) {
 			// Fetch the existing report to continue collection against it.
-			if getErr := r.Get(ctx, types.NamespacedName{Name: node.Name}, report); getErr != nil {
+			if getErr := r.Get(ctx, types.NamespacedName{Name: name}, report); getErr != nil {
 				return nil, getErr
 			}
 			return report, nil

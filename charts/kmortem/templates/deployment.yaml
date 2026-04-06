@@ -20,6 +20,12 @@ spec:
         control-plane: manager
     spec:
       serviceAccountName: {{ include "kmortem.serviceAccountName" . }}
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- range . }}
+        - name: {{ . }}
+        {{- end }}
+      {{- end }}
       terminationGracePeriodSeconds: 30
       securityContext:
         runAsNonRoot: true

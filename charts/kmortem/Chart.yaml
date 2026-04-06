@@ -2,8 +2,8 @@ apiVersion: v2
 name: kmortem
 description: Kubernetes operator that captures forensic NodeReport records when nodes terminate
 type: application
-version: 0.0.1
-appVersion: "0.0.1"
+version: 0.0.2
+appVersion: "0.0.2"
 keywords:
   - kubernetes
   - operator

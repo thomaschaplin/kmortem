@@ -25,20 +25,22 @@ Both groups run simultaneously with a 90-second total timeout, designed to fit i
 
 ## Usage
 
+NodeReport names embed the node UID to ensure uniqueness across node replacements — nodes recycled with the same hostname produce distinct records.
+
 ```
 $ kubectl get nodereports
-NAME                    NODE             CAUSE                    PHASE      AGE
-ip-10-0-1-42            ip-10-0-1-42     SpotInterruption         Complete   2d
-ip-10-0-2-18            ip-10-0-2-18     ManualDrain              Complete   5d
-ip-10-0-3-7             ip-10-0-3-7      ClusterAutoscalerScaleDown Complete  12h
+NAME                                                        NODE             CAUSE                       PHASE      AGE
+ip-10-0-1-42-a1b2c3d4-1234-5678-abcd-ef0123456789          ip-10-0-1-42     SpotInterruption            Complete   2d
+ip-10-0-2-18-b2c3d4e5-2345-6789-bcde-f01234567890          ip-10-0-2-18     ManualDrain                 Complete   5d
+ip-10-0-3-7-c3d4e5f6-3456-789a-cdef-012345678901           ip-10-0-3-7      ClusterAutoscalerScaleDown  Complete   12h
 ```
 
 ```
-$ kubectl get nr ip-10-0-1-42 -o yaml
+$ kubectl get nr ip-10-0-1-42-a1b2c3d4-1234-5678-abcd-ef0123456789 -o yaml
 apiVersion: kmortem.io/v1alpha1
 kind: NodeReport
 metadata:
-  name: ip-10-0-1-42
+  name: ip-10-0-1-42-a1b2c3d4-1234-5678-abcd-ef0123456789
   creationTimestamp: "2026-03-23T12:00:00Z"
 spec:
   nodeName: ip-10-0-1-42
@@ -170,9 +172,10 @@ helm upgrade kmortem oci://ghcr.io/thomaschaplin/kmortem/charts/kmortem
 | `image.repository` | `ghcr.io/thomaschaplin/kmortem` | Container image repository |
 | `image.tag` | `""` (uses `appVersion`) | Image tag override |
 | `image.pullPolicy` | `IfNotPresent` | Image pull policy |
+| `image.pullSecrets` | `[]` | Image pull secret names (e.g. for private registries) |
 | `replicaCount` | `1` | Number of operator replicas |
 | `installCRDs` | `true` | Install the NodeReport CRD; set `false` if managing CRDs externally |
-| `namespace.create` | `true` | Create the release namespace |
+| `namespace.create` | `false` | Create the release namespace as a chart resource; `helm install --create-namespace` is used by default |
 | `serviceAccount.create` | `true` | Create a ServiceAccount |
 | `serviceAccount.name` | `""` (auto-generated) | ServiceAccount name override |
 | `retentionTTL` | `720h` | NodeReport retention duration |

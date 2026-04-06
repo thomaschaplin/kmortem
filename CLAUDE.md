@@ -12,7 +12,7 @@ make vet            # go vet ./...
 make lint           # golangci-lint run ./... (requires golangci-lint in PATH)
 make manifests      # regenerate CRD and RBAC YAML via controller-gen
 make generate       # regenerate DeepCopy methods via controller-gen
-make deploy         # kubectl apply all manifests to cluster
+make deploy         # helm upgrade --install to cluster (creates namespace if absent)
 make docker-build IMG=registry/kmortem:tag
 ```
 
@@ -27,7 +27,7 @@ kmortem is a controller-runtime operator with two controllers and four collector
 
 ### Controllers (`internal/controller/`)
 
-**NodeReconciler** (`node_controller.go`) — watches all `Node` objects. When `isTerminating()` detects a termination signal (unschedulable taint, Ready=False/Unknown, cluster-autoscaler annotation, or DeletionTimestamp), it deduplicates via `sync.Map` (in-flight) and a `spec.nodeUID` field index (existing NodeReports), creates a `NodeReport` with `phase=Collecting`, then fires a background goroutine with a 90s timeout to run the collection pipeline. The reconcile call returns immediately.
+**NodeReconciler** (`node_controller.go`) — watches all `Node` objects. When `isTerminating()` detects a termination signal (unschedulable taint, Ready=False/Unknown, cluster-autoscaler annotation, or DeletionTimestamp), it deduplicates via `sync.Map` (in-flight) and a `spec.nodeUID` field index (existing NodeReports), creates a `NodeReport` named `<nodeName>-<nodeUID>` with `phase=Collecting`, then fires a background goroutine with a 90s timeout to run the collection pipeline. The reconcile call returns immediately.
 
 **NodeReportReconciler** (`nodereport_controller.go`) — watches `NodeReport` objects. Re-queues `Collecting` reports every 5s; once `Complete`, enforces TTL expiry (`KMORTEM_RETENTION_TTL`, default 720h) by deleting the object.
 

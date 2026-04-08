@@ -33,6 +33,15 @@ const (
 	// Karpenter signals.
 	karpenterDisruptionTaint   = "karpenter.sh/disruption"
 	karpenterCapacityTypeLabel = "karpenter.sh/capacity-type"
+	karpenterNodePoolLabel     = "karpenter.sh/nodepool"
+	// karpenterUnregisteredTaint is placed on every new Karpenter node before
+	// kubelet registration completes. Its presence means the node is still
+	// starting up, not terminating.
+	karpenterUnregisteredTaint = "karpenter.sh/unregistered"
+	// karpenterInitializedLabel is set to "true" by Karpenter once a node has
+	// finished initialisation. Disruption is never initiated before this label
+	// is present, so its absence on a Karpenter node indicates provisioning.
+	karpenterInitializedLabel = "karpenter.sh/initialized"
 )
 
 // NodeReconciler watches Node objects and creates a NodeReport when a node
@@ -112,6 +121,12 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 // isTerminating returns true if the node is showing termination signals.
 func isTerminating(node *corev1.Node) bool {
+	// A Karpenter node that is still being provisioned is temporarily
+	// unschedulable/not-ready as part of normal startup — not terminating.
+	if isKarpenterProvisioning(node) {
+		return false
+	}
+
 	// Signal 1: unschedulable taint (node cordoned / drain initiated).
 	for _, taint := range node.Spec.Taints {
 		if taint.Key == nodeUnschedulableTaint {
@@ -183,6 +198,34 @@ func isKarpenterDisrupting(node *corev1.Node) bool {
 		}
 	}
 	return false
+}
+
+// isKarpenterProvisioning returns true if the node is a Karpenter-managed node
+// that has not yet completed initialisation. Such nodes are temporarily
+// unschedulable or not-ready as part of normal startup and must not be
+// mistaken for terminating nodes.
+func isKarpenterProvisioning(node *corev1.Node) bool {
+	// karpenter.sh/unregistered is the definitive startup taint: present only
+	// while the node is going through initial kubelet registration.
+	for _, taint := range node.Spec.Taints {
+		if taint.Key == karpenterUnregisteredTaint {
+			return true
+		}
+	}
+	// For any Karpenter-managed node, the initialized label is absent until
+	// startup is complete. Disruption is never initiated before that label is set.
+	if isKarpenterManaged(node) && node.Labels[karpenterInitializedLabel] != "true" {
+		return true
+	}
+	return false
+}
+
+// isKarpenterManaged returns true if the node was provisioned by Karpenter,
+// identified by the presence of capacity-type or nodepool labels.
+func isKarpenterManaged(node *corev1.Node) bool {
+	_, hasCapacityType := node.Labels[karpenterCapacityTypeLabel]
+	_, hasNodePool := node.Labels[karpenterNodePoolLabel]
+	return hasCapacityType || hasNodePool
 }
 
 // isSpotNode returns true if the node is a spot instance, based on Karpenter

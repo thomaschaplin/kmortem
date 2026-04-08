@@ -31,7 +31,7 @@ const (
 	clusterAutoscalerScaleDown = "cluster-autoscaler.kubernetes.io/scale-down"
 
 	// Karpenter signals.
-	karpenterDisruptionTaint   = "karpenter.sh/disruption"
+	karpenterDisruptedTaint    = "karpenter.sh/disrupted"
 	karpenterCapacityTypeLabel = "karpenter.sh/capacity-type"
 	karpenterNodePoolLabel     = "karpenter.sh/nodepool"
 	// karpenterUnregisteredTaint is placed on every new Karpenter node before
@@ -189,11 +189,11 @@ func classifyTerminationCause(_ context.Context, node *corev1.Node) v1alpha1.Ter
 	return v1alpha1.TerminationCauseUnknown
 }
 
-// isKarpenterDisrupting returns true if Karpenter has set its disruption taint,
+// isKarpenterDisrupting returns true if Karpenter has set its disrupted taint,
 // indicating it is actively draining the node.
 func isKarpenterDisrupting(node *corev1.Node) bool {
 	for _, taint := range node.Spec.Taints {
-		if taint.Key == karpenterDisruptionTaint && taint.Effect == corev1.TaintEffectNoSchedule {
+		if taint.Key == karpenterDisruptedTaint && taint.Effect == corev1.TaintEffectNoSchedule {
 			return true
 		}
 	}

@@ -109,7 +109,7 @@ status:
 
 | Signal | Classified as |
 |--------|--------------|
-| Karpenter `karpenter.sh/disruption` taint on a spot node | `SpotInterruption` |
+| Karpenter `karpenter.sh/disrupted` taint on a spot node | `SpotInterruption` |
 | `cluster-autoscaler.kubernetes.io/scale-down` annotation | `ClusterAutoscalerScaleDown` |
 | `MemoryPressure`, `DiskPressure`, or `PIDPressure` condition = True | `NodeConditionFailure` |
 | `node.kubernetes.io/unschedulable` taint (no other signals) | `ManualDrain` |

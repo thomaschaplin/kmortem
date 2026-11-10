@@ -1,31 +1,25 @@
-<img src="assets/logo.png" alt="logo" width="256" height="256" />
+<img src="assets/logo.png" alt="kmortem logo" width="256" height="256" />
 
 # kmortem
 
 > **Nodes die. Evidence shouldn't.**
 
-kmortem is a Kubernetes operator that watches for node termination events and preserves a forensic record of everything that happened — what ran, why it died, and what the blast radius was — as a `NodeReport` custom resource. Records are queryable via `kubectl` long after the node is gone.
+kmortem is a Kubernetes operator that writes a post-mortem for every node that goes away. When a node starts to terminate, it records what was running on it, why it went, and what was affected, and saves that as a `NodeReport` you can query with `kubectl` long after the node is gone.
 
-## How it works
+## Why
 
-kmortem runs two controllers:
+When a node is terminated by a spot interruption, an autoscaler scale-down or a drain, the evidence goes with it. The pods are rescheduled, the events age out, and by the time someone asks "what was running on that node, and why did it die?", there's nothing left to look at.
 
-**NodeReconciler** watches all Node objects. When it detects termination signals (cordoned taint, failed Ready condition, cluster-autoscaler annotation, Karpenter disruption taint, or deletion timestamp), it creates a `NodeReport` and immediately dispatches a background goroutine to collect evidence. The reconciler itself returns instantly — it never blocks on collection.
+kmortem captures that evidence while it still exists, so the question has an answer.
 
-**NodeReportReconciler** manages the lifecycle of `NodeReport` objects: checking collection progress, enforcing TTL expiry, and deleting the object once the TTL elapses.
+## Quick start
 
-Evidence is gathered by four collectors split into two parallel groups:
+```bash
+helm install kmortem oci://ghcr.io/thomaschaplin/kmortem/charts/kmortem \
+  --namespace kmortem --create-namespace
+```
 
-- **Hot** (time-critical, while the node is still reachable): pod inventory, OOMKill events
-- **Warm** (API-server backed, survives node removal): condition history, PodDisruptionBudget violations
-
-Instance metadata (EC2 instance ID, type, AZ, lifecycle, region) is resolved synchronously from node labels and `spec.providerID` — no IMDS call required.
-
-Both groups run simultaneously with a 90-second total timeout, designed to fit inside the AWS spot interruption 2-minute window. Partial failures are tolerated — a partial report is better than no report.
-
-## Usage
-
-NodeReport names embed the node UID to ensure uniqueness across node replacements — nodes recycled with the same hostname produce distinct records.
+Then, after a node has gone:
 
 ```
 $ kubectl get nodereports
@@ -35,8 +29,12 @@ ip-10-0-2-18-b2c3d4e5-2345-6789-bcde-f01234567890          ip-10-0-2-18     Manu
 ip-10-0-3-7-c3d4e5f6-3456-789a-cdef-012345678901           ip-10-0-3-7      ClusterAutoscalerScaleDown  Complete   12h
 ```
 
-```
-$ kubectl get nr ip-10-0-1-42-a1b2c3d4-1234-5678-abcd-ef0123456789 -o yaml
+Report names include the node's UID, so a replacement node that reuses the same hostname gets its own report.
+
+<details>
+<summary>Example report (<code>kubectl get nr &lt;name&gt; -o yaml</code>)</summary>
+
+```yaml
 apiVersion: kmortem.io/v1alpha1
 kind: NodeReport
 metadata:
@@ -105,105 +103,113 @@ status:
   message: Collection complete
 ```
 
-## Termination causes
+</details>
 
-| Signal | Classified as |
-|--------|--------------|
-| Karpenter `karpenter.sh/disrupted` taint on a spot node | `SpotInterruption` |
+## What's in a report
+
+| Section | What it records |
+|---------|-----------------|
+| **Termination** | When it was detected, the likely cause, and who started it |
+| **Instance** | EC2 instance ID, instance type, availability zone, spot or on-demand, region |
+| **Node** | Kernel, OS image, container runtime, kubelet version, CPU and memory capacity, when the node was created, labels and taints |
+| **Pods** | Every pod on the node: owning workload, start and end time, exit reason (Evicted, Completed, OOMKilled, Error, Unknown), phase, requests and limits, restart count, containers and images |
+| **OOM kills** | Containers killed for exceeding their memory limit, with the limit and the time |
+| **Conditions** | Ready, MemoryPressure, DiskPressure and PIDPressure, with when each last changed |
+| **PDB violations** | PodDisruptionBudgets covering pods on the node, and how many disruptions they allowed |
+
+Instance details come from node labels and `spec.providerID`, so kmortem doesn't need to call the EC2 metadata service.
+
+## How it works
+
+### Spotting a terminating node
+
+kmortem watches every Node and treats it as terminating when any of these is true:
+
+- It has the `node.kubernetes.io/unschedulable` taint (it was cordoned or is being drained)
+- Its `Ready` condition is `False` or `Unknown`
+- It has the `cluster-autoscaler.kubernetes.io/scale-down` annotation
+- It has a deletion timestamp
+
+Karpenter nodes that are still starting up are ignored. A new node can briefly look unschedulable or not ready while it registers, and without this check every scale-up would produce a false report.
+
+### Working out why
+
+| Signal | Cause |
+|--------|-------|
+| Karpenter's `karpenter.sh/disrupted` taint on a spot node | `SpotInterruption` |
 | `cluster-autoscaler.kubernetes.io/scale-down` annotation | `ClusterAutoscalerScaleDown` |
-| `MemoryPressure`, `DiskPressure`, or `PIDPressure` condition = True | `NodeConditionFailure` |
-| `node.kubernetes.io/unschedulable` taint (no other signals) | `ManualDrain` |
+| `MemoryPressure`, `DiskPressure` or `PIDPressure` is `True` | `NodeConditionFailure` |
+| `node.kubernetes.io/unschedulable` taint and nothing else | `ManualDrain` |
 | None of the above | `Unknown` |
 
-`initiatedBy` is also populated: `cluster-autoscaler` when the CA annotation is present, otherwise the Kubernetes field manager that last updated `spec.taints`.
+Rules are checked from top to bottom, and the first match wins. `initiatedBy` is `cluster-autoscaler` when the autoscaler annotation is present. Otherwise it's the field manager that last changed the node's taints, such as `karpenter` or `kubectl`.
 
-## Evidence gathered
+### Collecting the evidence
 
-- **Instance metadata** — EC2 instance ID, type, availability zone, lifecycle (spot/on-demand), region; resolved from node labels and `spec.providerID`
-- **Pod inventory** — every pod that was scheduled on the node: namespace, owner workload (Deployment/StatefulSet/DaemonSet/Job/CronJob), start time, end time, exit reason (Evicted/Completed/OOMKilled/Error/Unknown), phase, resource requests and limits, restart count, container names and images
-- **OOM kills** — any container killed for exceeding its memory limit: pod, container, memory limit, timestamp
-- **Condition history** — all node conditions (Ready, MemoryPressure, DiskPressure, PIDPressure) with last transition times; status values are always `True`, `False`, or `Unknown`
-- **Node metadata** — kernel version, OS image, container runtime, kubelet version, allocatable and capacity CPU/memory, creation time, labels, taints
-- **PDB violations** — PodDisruptionBudgets whose selectors matched pods on the node, with disruption counts
+The controller creates the `NodeReport` straight away and collects the evidence in the background, so a slow collection never holds up other nodes.
 
-## Status phases
+Collectors run in two groups at the same time:
+
+- **Hot:** data that's only accurate while the node is still up: the pod inventory and OOM kills
+- **Warm:** data the API server keeps after the node is gone: condition history and PDB violations
+
+Collection has a 90-second limit, which fits inside the 2-minute AWS spot interruption notice. If a collector fails or runs out of time, the report is still completed with whatever was gathered, and the failure is recorded as a `HotCollectionPartialFailure` or `WarmCollectionPartialFailure` condition on its status. A partial report beats no report.
+
+### Lifecycle
 
 | Phase | Meaning |
 |-------|---------|
-| `Collecting` | Evidence gathering in progress |
-| `Complete` | All available data recorded; TTL clock running |
+| `Collecting` | Evidence is being gathered |
+| `Complete` | Collection has finished, and the retention period has started |
+
+Reports are deleted automatically once they're older than the retention period.
 
 ## Configuration
 
-Configuration is loaded from environment variables on the manager pod.
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `KMORTEM_RETENTION_TTL` | `720h` | How long `NodeReport` objects live in the cluster (30 days). Any Go duration string is accepted, e.g. `48h`. |
-
-## Deployment
-
-**Prerequisites:** a running Kubernetes cluster and `kubectl` configured with cluster-admin permissions.
-
-The operator is distributed as a Helm chart. The chart installs the CRD, RBAC, namespace, and Deployment in one step.
-
-```bash
-helm install kmortem oci://ghcr.io/thomaschaplin/kmortem/charts/kmortem
-```
-
-To customise the installation (image tag, retention TTL, resource limits, etc.) pass values at install time:
-
-```bash
-helm install kmortem oci://ghcr.io/thomaschaplin/kmortem/charts/kmortem \
-  --set retentionTTL=48h \
-  --set resources.limits.memory=256Mi
-```
-
-To upgrade:
-
-```bash
-helm upgrade kmortem oci://ghcr.io/thomaschaplin/kmortem/charts/kmortem
-```
-
-### Helm values
-
-| Value | Default | Description |
-|-------|---------|-------------|
-| `image.repository` | `ghcr.io/thomaschaplin/kmortem` | Container image repository |
-| `image.tag` | `""` (uses `appVersion`) | Image tag override |
-| `image.pullPolicy` | `IfNotPresent` | Image pull policy |
-| `image.pullSecrets` | `[]` | Image pull secret names (e.g. for private registries) |
-| `replicaCount` | `1` | Number of operator replicas |
-| `installCRDs` | `true` | Install the NodeReport CRD; set `false` if managing CRDs externally |
-| `namespace.create` | `false` | Create the release namespace as a chart resource; `helm install --create-namespace` is used by default |
+| Helm value | Default | Description |
+|------------|---------|-------------|
+| `retentionTTL` | `720h` | How long reports are kept (30 days). Any Go duration, e.g. `48h`. An invalid value falls back to the default. Sets `KMORTEM_RETENTION_TTL`. |
+| `namespace.name` | `kmortem` | Namespace the operator runs in |
+| `namespace.create` | `false` | Create the namespace as part of the chart. Usually you'd use `--create-namespace` instead. |
+| `installCRDs` | `true` | Install the `NodeReport` CRD. Set to `false` if you manage CRDs separately, e.g. with GitOps. |
+| `rbac.create` | `true` | Create the ClusterRole and ClusterRoleBinding |
 | `serviceAccount.create` | `true` | Create a ServiceAccount |
-| `serviceAccount.name` | `""` (auto-generated) | ServiceAccount name override |
-| `retentionTTL` | `720h` | NodeReport retention duration |
+| `serviceAccount.name` | `""` | ServiceAccount name. Defaults to `<release>-manager`. |
+| `image.repository` | `ghcr.io/thomaschaplin/kmortem` | Image repository |
+| `image.tag` | `""` | Image tag. Defaults to the chart's `appVersion`. |
+| `image.pullPolicy` | `IfNotPresent` | Image pull policy |
+| `image.pullSecrets` | `[]` | Image pull secret names |
+| `replicaCount` | `1` | Number of operator replicas |
 | `leaderElection.enabled` | `true` | Enable leader election |
-| `leaderElection.namespace` | `""` (uses release namespace) | Namespace for leader election lease |
-| `resources.limits.cpu` | `500m` | CPU limit |
-| `resources.limits.memory` | `128Mi` | Memory limit |
-| `resources.requests.cpu` | `10m` | CPU request |
-| `resources.requests.memory` | `64Mi` | Memory request |
+| `leaderElection.namespace` | `""` | Namespace for the leader election lease. Defaults to `namespace.name`. |
+| `resources` | 10m / 64Mi requests, 500m / 128Mi limits | Operator resource requests and limits |
+
+For example:
+
+```bash
+helm upgrade --install kmortem oci://ghcr.io/thomaschaplin/kmortem/charts/kmortem \
+  --namespace kmortem --create-namespace \
+  --set retentionTTL=48h
+```
+
+## Limitations
+
+- **Instance details are AWS-only.** On other clouds, the instance section is left mostly empty. The rest of the report still works.
+- **kmortem has to see the node before it's gone.** If a node is deleted before the operator notices any of the signals above (for example, while the operator itself is restarting), no report is written.
+- **Run the operator away from spot capacity.** If the node running kmortem is the one being interrupted, it can't report on itself.
+- **OOM kills come from container status,** so only the most recent termination of each container is recorded.
 
 ## Development
 
 ```bash
-# Build the binary
-make build
-
-# Run tests
-make test
-
-# Format and vet
-make fmt vet
-
-# Build the container image
+make build                                  # format, vet and compile to bin/kmortem
+make test                                   # format, vet and run the tests with the race detector
+make lint                                   # golangci-lint
+make manifests                              # regenerate the CRD and RBAC, and sync them into the Helm chart
 make docker-build IMG=my-registry/kmortem:dev
-
-# Push
-make docker-push IMG=my-registry/kmortem:dev
 ```
+
+CI checks formatting, runs `go vet` and the tests, and checks that the Helm chart's CRD and RBAC match the generated manifests.
 
 ## CRD reference
 
@@ -213,10 +219,14 @@ make docker-push IMG=my-registry/kmortem:dev
 - **Short name:** `nr`
 - **Scope:** Cluster
 
-## Transparency
+## How this was built
 
-Yes, every line of this was vibe-coded. Not a single character was typed by a human with intent. And you know what? It works, it solves a real problem, and it shipped in an afternoon instead of a sprint.
+kmortem was built with AI coding agents. The agents wrote the code. I decided what it should do and checked that it did.
 
-We live in an era where the bottleneck isn't writing code — it's having good ideas and the judgement to know when something is worth building. So instead of spending a week hand-crafting the perfect operator, this one was described, reasoned about, and iterated on in plain English.
+That meant choosing which evidence is worth keeping, what has to be captured inside a 2-minute spot window, and that a partial report is better than none. It also meant catching mistakes the agent didn't. One example: Karpenter nodes look exactly like terminating nodes while they're starting up, and every scale-up was producing a false report until that was fixed.
 
-The nodes still die. The evidence still doesn't. Ship fast, solve problems. Now go build something else.
+AI makes the building fast. Knowing when it's wrong is still the job.
+
+## License
+
+[MIT](LICENSE)
